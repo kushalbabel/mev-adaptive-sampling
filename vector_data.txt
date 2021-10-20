@@ -1,1 +1,1 @@
-1,Miner,1,eth,2,link
+1,Miner,1,eth,2,usdt
