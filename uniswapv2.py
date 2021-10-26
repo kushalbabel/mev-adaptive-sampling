@@ -26,8 +26,8 @@ class UniswapV2:
         vals = re.match(r'(.*) adds (.*) (.*) and (.*) (.*) of liquidity', tx)
         token0 = vals.group(3)
         token1 = vals.group(5)
-        amount0 = int(vals.group(2))
-        amount1 = int(vals.group(4))
+        amount0 = float(vals.group(2))
+        amount1 = float(vals.group(4))
         address = vals.group(1)
         self.token_balances[self.exchange_name][token0] += amount0
         self.token_balances[self.exchange_name][token1] += amount1
@@ -39,8 +39,8 @@ class UniswapV2:
         vals = re.match(r'(.*) removes (.*) (.*) and (.*) (.*) of liquidity', tx)
         token0 = vals.group(3)
         token1 = vals.group(5)
-        amount0 = int(vals.group(2))
-        amount1 = int(vals.group(4))
+        amount0 = float(vals.group(2))
+        amount1 = float(vals.group(4))
         address = vals.group(1)
         self.token_balances[self.exchange_name][token0] -= amount0
         self.token_balances[self.exchange_name][token1] -= amount1
@@ -53,9 +53,9 @@ class UniswapV2:
         address = vals.group(1)
         token_in = vals.group(4)
         token_out = vals.group(6)
-        amount_in_token_in = int(vals.group(3))
-        amount_in_token_out = int(vals.group(5))
-        amount_out_token_in = int(vals.group(7))
+        amount_in_token_in = float(vals.group(3))
+        amount_in_token_out = float(vals.group(5))
+        amount_out_token_in = float(vals.group(7))
 
         amount_out_token_out = (((997 * amount_in_token_in - 1000 * amount_out_token_in) * self.token_balances[self.exchange_name][token_out]) // (1000 * (self.token_balances[self.exchange_name][token_in] - amount_out_token_in) + 997 * amount_in_token_in)) + ((amount_in_token_out * 997) // (1000))
         
