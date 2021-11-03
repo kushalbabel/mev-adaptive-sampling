@@ -15,7 +15,7 @@ def get_params(transactions):
         for val in vals:
             if 'alpha' in val:
                 params.add(val)
-    return params
+    return list(params)
 
 def next_sample(params, domain):
     sample = {}
@@ -57,7 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters", required=True)
 
     #------------ Arguments for adaptive sampling
-    parser.add_argument('--name', default='test_fn_0', help='name of the experiment (default: test_fn_0)')
+    parser.add_argument('--name', default=None, help='name of the experiment (default: None)')
     parser.add_argument('--minimize', action='store_true', help='if selected, the function will be minimized, otherwise maximized')
     parser.add_argument('--test_fn', type=str, help='(optional) choose from common optimization test functions [rastrigin, ]')
     parser.add_argument('--plot_contour', action='store_true', help='if selected, the sampler will save contours of the objective function along with per-iteration samples')
@@ -80,6 +80,8 @@ if __name__ == '__main__':
     args = parser.parse_args()  
     np.random.seed(args.seed)
 
+    if args.name is None:
+        args.name = f'iter{args.n_iter}_{args.num_samples}nsamples_{args.u_random_portion}random_{args.local_portion}local_{args.cross_portion}_cross'
     args.save_path = os.path.join('artifacts', args.name)
     os.makedirs(args.save_path, exist_ok=True)  
     logging.basicConfig(level=args.loglevel, format='%(message)s')
@@ -110,6 +112,7 @@ if __name__ == '__main__':
     #---------------- Run Sampling
     print('=> Starting optimization')
     best_sample, best_mev = sampler.run_sampling(evaluator.evaluate, args.num_samples, args.n_iter, args.minimize, args.alpha_max, early_stopping=args.early_stopping, 
-										save_path=args.save_path, n_parallel=args.n_parallel, plot_contour=args.plot_contour, executor=mp.Pool)
+										save_path=args.save_path, n_parallel=args.n_parallel, plot_contour=args.plot_contour, 
+                                        executor=mp.Pool, param_names=params)
     print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
     print('maximum MEV:', best_mev)

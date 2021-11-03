@@ -133,8 +133,8 @@ class AdaNS_sampler(object):
         self.update_good_samples(alpha_max)
 
 
-    def run_sampling(self, evaluator, num_samples, n_iter, minimize=False, alpha_max=1.0, early_stopping=np.Infinity, 
-        save_path='./sampling', n_parallel=1, plot_contour=False, executor=mp.Pool):
+    def run_sampling(self, evaluator, num_samples, n_iter, minimize=False, alpha_max=1.0, early_stopping=np.Infinity,
+        save_path='./sampling', n_parallel=1, plot_contour=False, executor=mp.Pool, param_names=None):
         '''
         Function to maximize given black-box function and save results to ./sampling/
             - evaluator : the objective function to be minimized
@@ -159,18 +159,28 @@ class AdaNS_sampler(object):
         contour = None
         if plot_contour:
             if self.dimensions==2:
-                x = np.linspace(self.boundaries[0,0], self.boundaries[0,1], num=100)
-                y = np.linspace(self.boundaries[1,0], self.boundaries[1,1], num=100)
-                
-                data = np.zeros((len(x), len(y)))
-                for i in range(len(x)):
-                    for j in range(len(y)):
-                        data[i, j] = evaluator([x[i], y[j]])
-                contour = (x, y, data)
-
                 path_to_contour = os.path.join(save_path, 'contour')
-                if not os.path.exists(path_to_contour):
-                    os.makedirs(path_to_contour)
+                os.makedirs(path_to_contour, exist_ok=True)
+                contour_file = os.path.join(path_to_contour, 'contour_data.pkl')
+                if not os.path.exists(contour_file):
+                    x = np.linspace(self.boundaries[0,0], self.boundaries[0,1], num=1000)
+                    y = np.linspace(self.boundaries[1,0], self.boundaries[1,1], num=1000)
+                    
+                    data = np.zeros((len(x), len(y)))
+                    for i in range(len(x)):
+                        for j in range(len(y)):
+                            data[i, j] = evaluator([x[i], y[j]])
+                    contour = (x, y, data)
+                    with open(contour_file, 'wb') as f:
+                        pickle.dump(contour, f)
+                else:
+                    with open(contour_file, 'rb') as f:
+                        contour = pickle.load(f)
+                        x, y, data = contour
+
+                max_val = np.max(data)
+                max_ind = np.unravel_index(np.argmax(data, axis=None), data.shape)
+                print('maximum is %.2f located at (%.2f, %.2f)'%(max_val, x[int(max_ind[0])], y[int(max_ind[1])]))
             else:
                 print('=> Contour plotting not possible for %d dimensions.'%self.dimensions)
 
@@ -180,7 +190,6 @@ class AdaNS_sampler(object):
             print('=> Sampling budget was adjusted to be ' + str(num_samples))
             self.minimum_num_good_samples = num_samples
 
-        
         # apply the sampling algorithm
         best_samples = []
         best_scores = []
@@ -234,6 +243,9 @@ class AdaNS_sampler(object):
                 plt.scatter(samples[:,0], samples[:,1], c='k', s=20)
                 plt.xlim(self.boundaries[0,:])
                 plt.ylim(self.boundaries[1,:])
+                if param_names is not None:
+                    plt.xlabel(param_names[0])
+                    plt.ylabel(param_names[1])
                 plt.savefig(os.path.join(path_to_contour, 'score_contour_iter%d.png'%iteration))
                 plt.close()
 
@@ -262,8 +274,11 @@ class AdaNS_sampler(object):
                 plt.contourf(contour[0], contour[1], contour[-1])
                 plt.colorbar()
                 plt.scatter(best_sample_overall[0], best_sample_overall[1], c='r', marker='*', s=100)
-                plt.xlim(self.boundaries[0,:])
-                plt.ylim(self.boundaries[1,:])
+                # plt.xlim(self.boundaries[0,:])
+                # plt.ylim(self.boundaries[1,:])
+                if param_names is not None:
+                    plt.xlabel(param_names[0])
+                    plt.ylabel(param_names[1])
                 plt.savefig(os.path.join(path_to_contour, 'score_contour_final.png'))
                 plt.close()
 
@@ -402,7 +417,7 @@ class Gaussian_sampler(AdaNS_sampler):
         self.u_random_portion = u_random_portion
         self.local_portion = local_portion
         self.cross_portion = cross_portion
-        assert (u_random_portion + local_portion + cross_portion) == 1., 'sum of sampling portions must be 1'
+        assert (u_random_portion + local_portion + cross_portion) == 1., 'sum of sampling portions must be 1 %f'%(u_random_portion + local_portion + cross_portion)
 
         self.pair_selection_method = pair_selection_method
         assert pair_selection_method in ['random','top_scores','top_and_nearest','top_and_furthest','top_and_random'], \
