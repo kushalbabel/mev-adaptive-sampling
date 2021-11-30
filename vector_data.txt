@@ -1,1 +1,1 @@
-1,Miner,1,eth,2,usdt
+1,Miner,1,eth,2,usdc

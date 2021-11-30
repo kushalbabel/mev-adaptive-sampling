@@ -12,7 +12,7 @@ def generate_transaction(tx_type, params):
     return format_string.format(*params)
 
 def simulate(lines):
-    amm = UniswapV2(balances={'eth':0,'usdt':0})
+    amm = UniswapV2(balances={'eth':0,'usdc':0})
     for line in lines:
         elements = line.strip().split(',')
         function_selector = elements[0]
