@@ -1,7 +1,11 @@
 import argparse
 import logging
 from uniswapv2 import UniswapV2
-        
+
+def info(amm):
+    print(dict(amm.config()))
+    print('Supply',amm.supply)
+
 def generate_transaction(tx_type, params):
     if tx_type == '1':
         format_string = '{} adds {} {} and {} {} of liquidity'
@@ -9,7 +13,25 @@ def generate_transaction(tx_type, params):
         format_string = '{} removes {} {} and {} {} of liquidity'
     elif tx_type == '3':
         format_string = '{} swaps for {} by providing {} {} and {} {} with change {} fee {}'
+    elif tx_type == '4':
+        format_string = '{} redeems {} fraction of liquidity from {} and {}'
     return format_string.format(*params)
+
+def get_mev(amm):
+    mev = 0
+    miner_balances = amm.config()['Miner']
+    amm_reserves = amm.config()[amm.exchange_name]
+    default_token = 'eth'
+    for token in miner_balances:
+        amount = miner_balances[token]
+        if token == default_token:
+            mev += amount
+        elif token == amm.lp_token:
+            mev += 2*amm.config()[amm.exchange_name][default_token]*amount/amm.supply
+        else:
+            eth_amount = amount * amm_reserves[default_token]/amm_reserves[token]
+            mev += eth_amount
+    return mev
 
 def simulate(lines):
     amm = UniswapV2(balances={'eth':0,'usdc':0})
@@ -18,19 +40,11 @@ def simulate(lines):
         function_selector = elements[0]
         transaction = generate_transaction(function_selector, elements[1:])
         amm.process(transaction)
-
-    mev = 0
-    miner_balances = amm.config()['Miner']
-    amm_reserves = amm.config()['UniswapV2']
-    default_token = 'eth'
-    for token in miner_balances:
-        amount = miner_balances[token]
-        if token == default_token:
-            mev += amount
-        else:
-            eth_amount = amount * amm_reserves[default_token]/amm_reserves[token]
-            mev += eth_amount
-    return mev
+        # print(line)
+        # info(amm)
+        # print('mev',get_mev(amm))
+        # print('')
+    return get_mev(amm)
 
 if __name__ == '__main__':
 

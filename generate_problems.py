@@ -86,12 +86,12 @@ for transaction in transactions:
 
 df = pd.read_csv(args.reserves)
 df = df[(df.Block) < int(args.start_block)].iloc[-1]
-bootstrap_tx = '1,Reserves,{},usdc,{},eth'.format(df.Reserve0,df.Reserve1)
+bootstrap_tx = '1,Reserves,{},usdc,{},eth'.format(float(df.Reserve0)/1e6,float(df.Reserve1)/1e18)
 
 swap_template1 = '3,Miner,usdc,alpha1,eth,0,usdc,0,0'
 swap_template2 = '3,Miner,eth,alpha2,usdc,0,eth,0,0'
 addition_template = '1,Miner,alpha3,eth,alpha4,usdc'
-removal_template = '2,Miner,alpha5,eth,alpha6,usdc'
+removal_template = '4,Miner,alpha5,eth,usdc'
 
 insertions = [swap_template1, swap_template2, addition_template, removal_template]
 
