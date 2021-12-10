@@ -215,6 +215,8 @@ class AdaNS_sampler(object):
                 print('=> Activating early stopping')
                 break
 
+            print(samples)
+
             # evaluate current batch of samples
             scores = np.zeros(len(samples))
             n_batches = len(samples)//n_parallel if len(samples)%n_parallel==0 else (len(samples)//n_parallel)+1

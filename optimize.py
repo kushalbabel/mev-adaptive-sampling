@@ -79,10 +79,13 @@ if __name__ == '__main__':
 
     args = parser.parse_args()  
     np.random.seed(args.seed)
-
+    
     if args.name is None:
         args.name = f'iter{args.n_iter}_{args.num_samples}nsamples_{args.u_random_portion}random_{args.local_portion}local_{args.cross_portion}_cross'
-    args.save_path = os.path.join('artifacts', args.name)
+    problem_name = os.path.basename(args.transactions)
+    args.save_path = os.path.join('artifacts', problem_name, args.name)
+    print('=> Saving artifacts to %s' % args.save_path)
+
     os.makedirs(args.save_path, exist_ok=True)  
     logging.basicConfig(level=args.loglevel, format='%(message)s')
 
@@ -97,7 +100,7 @@ if __name__ == '__main__':
     for line in domain_f.readlines():
         tokens = line.strip().split(',')
         domain[tokens[0]] = (float(tokens[1]), float(tokens[2]))
-    
+
     params = get_params(transactions)
     logging.info(params)
     boundaries = []
@@ -116,3 +119,9 @@ if __name__ == '__main__':
                                         executor=mp.Pool, param_names=params)
     print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
     print('maximum MEV:', best_mev)
+
+    with open('final_results.txt', 'a') as f:
+    	f.write(f'------------------- {problem_name} \n')
+    	f.write(f'max MEV: {best_mev} \n')
+    	f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)}))
+
