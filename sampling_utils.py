@@ -69,6 +69,11 @@ class AdaNS_sampler(object):
         '''
         if num_samples>0:
             sample_vectors = np.random.uniform(self.boundaries[:,0], self.boundaries[:,1], size=(num_samples, self.dimensions))
+            sample_vectors = np.unique(sample_vectors, axis=0)
+            while len(sample_vectors) < num_samples:
+                count = num_samples - len(sample_vectors)
+                sample_vectors = np.concatenate((sample_vectors, np.random.uniform(self.boundaries[:,0], self.boundaries[:,1], size=(count, self.dimensions))))
+                sample_vectors = np.unique(sample_vectors, axis=0)
         else:
             sample_vectors = np.zeros((0, self.dimensions))
 
@@ -128,7 +133,10 @@ class AdaNS_sampler(object):
             - alpha_max: current \alpha_max
         '''   
         self.all_samples = np.concatenate((self.all_samples, samples), axis=0)
-        self.all_scores = np.concatenate((self.all_scores, scores), axis=0)
+        self.all_samples, indices = np.unique(self.all_samples, axis=0, return_index=True)
+        
+        self.all_scores = np.concatenate((self.all_scores, scores), axis=0)[indices]
+        assert len(self.all_samples)==len(self.all_scores)
 
         self.update_good_samples(alpha_max)
 
@@ -214,8 +222,6 @@ class AdaNS_sampler(object):
             if num_not_improve > early_stopping:
                 print('=> Activating early stopping')
                 break
-
-            print(samples)
 
             # evaluate current batch of samples
             scores = np.zeros(len(samples))
@@ -453,6 +459,8 @@ class Gaussian_sampler(AdaNS_sampler):
             return np.zeros(0, self.dimensions).astype(np.int32), []
 
         data = self.all_samples[self.good_samples]
+        assert len(np.unique(data, axis=0))==data.shape[0]
+
         scores = self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])
         avg_good_scores = np.mean(scores)
         scores = scores + avg_good_scores
@@ -495,10 +503,10 @@ class Gaussian_sampler(AdaNS_sampler):
                 sample = np.random.multivariate_normal(gauss_mean, gauss_cov)
                 sample = np.clip(sample, self.boundaries[:,0], self.boundaries[:,1])
                 sample = np.expand_dims(sample, axis=0)
-                cross_samples = np.append(cross_samples, sample, axis=0)                
+                cross_samples = np.append(cross_samples, sample, axis=0)                            
 
         # "Uniform" samples chosen uniformly random
-        random_sampling = int(num_samples*self.u_random_portion+0.001)  
+        random_sampling = int(num_samples*self.u_random_portion+0.001)   
         random_samples = self.sample_uniform(num_samples=random_sampling)
                
         print('sampled %d uniformly, %d with local gaussians, %d with cross gaussians'%(len(random_samples), len(local_samples), len(cross_samples)))
@@ -514,6 +522,16 @@ class Gaussian_sampler(AdaNS_sampler):
             
         if cross_sampling>0:
             sample_vectors = np.concatenate((sample_vectors, cross_samples))
+
+        sample_vectors, indices = np.unique(sample_vectors, axis=0, return_index=True)
+        origins = [origins[i] for i in indices]
+        while len(sample_vectors) < num_samples:
+            count = num_samples - len(sample_vectors)
+            print(f'adding {count} more random samples')
+            sample_vectors = np.concatenate((sample_vectors, self.sample_uniform(num_samples=count)))
+            origins += ['U'] * count
+            sample_vectors, indices = np.unique(sample_vectors, axis=0, return_index=True)
+            origins = [origins[i] for i in indices]
         
         return sample_vectors, origins
 
