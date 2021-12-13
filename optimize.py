@@ -135,7 +135,11 @@ if __name__ == '__main__':
         print(f'found {len(all_files)} files for optimization')
 
         for transaction in all_files:
-            main(args, transaction)
+            try:
+                main(args, transaction)
+            except:
+                print(f'======== error occured when running {transaction}')
+                continue
 
     else:
         assert os.path.isfile(args.transactions)

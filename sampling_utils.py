@@ -133,7 +133,10 @@ class AdaNS_sampler(object):
             - alpha_max: current \alpha_max
         '''   
         self.all_samples = np.concatenate((self.all_samples, samples), axis=0)
+        orig_count = self.all_samples.shape[0]
         self.all_samples, indices = np.unique(self.all_samples, axis=0, return_index=True)
+        if self.all_samples.shape[0] < orig_count:
+            print(f'==== Removing {orig_count-self.all_samples.shape[0]} duplicate samples')
         
         self.all_scores = np.concatenate((self.all_scores, scores), axis=0)[indices]
         assert len(self.all_samples)==len(self.all_scores)
@@ -214,7 +217,7 @@ class AdaNS_sampler(object):
                 samples, origins = self.sample(num_samples)
 
                 # if the percentage improvement in the maximum score is smaller than 0.1%, activate early stopping
-                if (max_score_improv/prev_max_score) < 0.001:
+                if max_score_improv==0: #(max_score_improv/prev_max_score) < 0.001:
                     num_not_improve += 1 
                 else:
                     num_not_improve = 0
@@ -479,7 +482,11 @@ class Gaussian_sampler(AdaNS_sampler):
         gaussian_mix.fit(X=data)
         gaussian_mix.means_ = gaussian_means
         gaussian_mix.covariances_ = gaussian_covs
-        gaussian_mix.weights_ = scores/np.sum(scores)
+        if np.sum(scores)==0:
+            print('====== sum of scores was zero')
+            gaussian_mix.weights_ = [1./len(scores)] * len(scores)
+        else:
+            gaussian_mix.weights_ = scores/np.sum(scores)
         
         if local_sampling>0:
             local_samples  = gaussian_mix.sample(n_samples=local_sampling)[0]
