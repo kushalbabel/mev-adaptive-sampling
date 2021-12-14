@@ -36,8 +36,10 @@ def get_mev(amm):
                 # swap into eth_amount, not just mul price
                 amm.raw_swap('Miner', token, default_token, amount, 0, 0)
             else:
-                return large_negative
-
+                amm.raw_swap_output('Miner', default_token, token, 0-amount)
+                #return large_negative
+    
+    miner_balances = amm.config()['Miner']
     for token in miner_balances:
         amount = miner_balances[token]
         if token == default_token:

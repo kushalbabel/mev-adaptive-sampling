@@ -101,7 +101,16 @@ class UniswapV2:
         self.token_balances[self.exchange_name][token_out] += amount_in_token_out - amount_out_token_out
         self.token_balances[address][token_in] += amount_out_token_in - amount_in_token_in
         self.token_balances[address][token_out] += amount_out_token_out - amount_in_token_out
-    
+
+    def raw_swap_output(self, address, token_in, token_out, amount_out_token_out):
+        amount_in_token_in = (1000* amount_out_token_out * self.token_balances[self.exchange_name][token_in]) // (1 + 997 * (self.token_balances[self.exchange_name][token_out] - amount_out_token_out))
+
+        self.token_balances[self.exchange_name][token_in] += amount_in_token_in
+        self.token_balances[self.exchange_name][token_out] -= amount_out_token_out
+        self.token_balances[address][token_in] -= amount_in_token_in
+        self.token_balances[address][token_out] += amount_out_token_out
+
+
     def config(self):
         return self.token_balances
 
