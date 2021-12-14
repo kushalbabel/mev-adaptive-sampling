@@ -2,6 +2,8 @@ import argparse
 import logging
 from uniswapv2 import UniswapV2
 
+large_negative = -1e9
+
 def info(amm):
     print(dict(amm.config()))
     print('Supply',amm.supply)
@@ -22,6 +24,20 @@ def get_mev(amm):
     miner_balances = amm.config()['Miner']
     amm_reserves = amm.config()[amm.exchange_name]
     default_token = 'eth'
+    # first convert all into eth
+    for token in miner_balances:
+        amount = miner_balances[token]
+        if token == default_token:
+            pass
+        elif token == amm.lp_token:
+            pass
+        else:
+            if amount > 0:
+                # swap into eth_amount, not just mul price
+                amm.raw_swap('Miner', token, default_token, amount, 0, 0)
+            else:
+                return large_negative
+
     for token in miner_balances:
         amount = miner_balances[token]
         if token == default_token:
@@ -29,8 +45,7 @@ def get_mev(amm):
         elif token == amm.lp_token:
             mev += 2*amm.config()[amm.exchange_name][default_token]*amount/amm.supply
         else:
-            eth_amount = amount * amm_reserves[default_token]/amm_reserves[token]
-            mev += eth_amount
+            pass
     return mev
 
 def simulate(lines):
