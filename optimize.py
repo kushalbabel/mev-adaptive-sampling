@@ -1,8 +1,10 @@
 import os
 import argparse
 import logging
+import pickle
 import numpy as np
 import multiprocessing as mp
+from tqdm import tqdm
 
 from simulate import simulate
 from sampling_utils import Gaussian_sampler
@@ -48,7 +50,7 @@ class MEV_evaluator(object):
         return mev
 
 
-def main(args, transaction):
+def main(args, transaction, grid_search=False):
     if args.name is None:
         args.name = f'iter{args.n_iter}_{args.num_samples}nsamples_{args.u_random_portion}random_{args.local_portion}local_{args.cross_portion}_cross'
     problem_name = os.path.basename(transaction)
@@ -80,22 +82,74 @@ def main(args, transaction):
         boundaries.append(list(domain[p_name]))
     boundaries = np.asarray(boundaries)
 
-    sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=int(0.5*args.num_samples), 
-                                u_random_portion=args.u_random_portion, local_portion=args.local_portion, cross_portion=args.cross_portion, pair_selection_method=args.pair_selection)
     evaluator = MEV_evaluator(transactions, params)
 
-    #---------------- Run Sampling
-    print('=> Starting optimization')
-    best_sample, best_mev = sampler.run_sampling(evaluator.evaluate, args.num_samples, args.n_iter, args.minimize, args.alpha_max, early_stopping=args.early_stopping, 
-                                        save_path=args.save_path, n_parallel=args.n_parallel, plot_contour=args.plot_contour, 
-                                        executor=mp.Pool, param_names=params)
-    print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
-    print('maximum MEV:', best_mev)
+    if grid_search:
+        path_to_save = os.path.join('artifacts', problem_name, 'grid_search')
+        os.makedirs(path_to_save, exist_ok=True)
 
-    with open('final_results.txt', 'a') as f:
-        f.write(f'------------------- {problem_name} \n')
-        f.write(f'max MEV: {best_mev} \n')
-        f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)}))
+        if not os.path.exists(os.path.join(path_to_save, 'scores.pkl')):
+            grid = {}
+            total = 1
+            for p_name in params:
+                if p_name in ['alpha1', 'alpha2']:
+                    count = 20
+                else:
+                    count = 5
+                grid[p_name] = np.linspace(domain[p_name][0], domain[p_name][-1], num=count)
+                total *= len(grid[p_name])
+            samples = np.vstack(np.meshgrid(*[grid[p_name] for p_name in params])).reshape(len(params), -1).T
+            with open(os.path.join(path_to_save, 'samples.pkl'), 'wb') as f:
+                pickle.dump([params, samples], f)
+            
+            n_parallel = 4
+            n_batches = len(samples)//n_parallel if len(samples)%n_parallel==0 else (len(samples)//n_parallel)+1
+            scores = np.zeros(len(samples))
+            
+            with tqdm(total=n_batches) as pbar:
+                for i in range(n_batches):
+                    batch_samples = samples[i*n_parallel:(i+1)*n_parallel]
+
+                    with mp.Pool() as e:
+                        scores[i*n_parallel:(i+1)*n_parallel] = list(e.map(evaluator.evaluate, batch_samples))
+                    
+                    pbar.update(1)
+                    pbar.set_description('batch %s/%s (samples %s..%s/%s)'%(i+1, len(samples)//n_parallel, i*n_parallel, \
+                                                    (i+1)*n_parallel, len(samples))) 
+
+                    if i % 200==0:
+                        print('=> saving history so far')
+                        with open(os.path.join(path_to_save, 'scores.pkl'), 'wb') as f:
+                            pickle.dump(scores, f)
+        else:
+            with open(os.path.join(path_to_save, 'scores.pkl'), 'rb') as f:
+                scores = pickle.load(f)
+            with open(os.path.join(path_to_save, 'samples.pkl'), 'rb') as f:
+                log = pickle.load(f)
+            params, samples = log[0], log[1]
+
+            print(len(scores))
+            idx = np.argmax(scores)
+            print(np.sum(scores < 0))
+            print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, samples[idx])})
+            print('maximum MEV:', scores[idx])
+
+    else:
+        sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=int(0.5*args.num_samples), 
+                                    u_random_portion=args.u_random_portion, local_portion=args.local_portion, cross_portion=args.cross_portion, pair_selection_method=args.pair_selection)
+
+        #---------------- Run Sampling
+        print('=> Starting optimization')
+        best_sample, best_mev = sampler.run_sampling(evaluator.evaluate, args.num_samples, args.n_iter, args.minimize, args.alpha_max, early_stopping=args.early_stopping, 
+                                            save_path=args.save_path, n_parallel=args.n_parallel, plot_contour=args.plot_contour, 
+                                            executor=mp.Pool, param_names=params)
+        print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
+        print('maximum MEV:', best_mev)
+
+        with open('final_results.txt', 'a') as f:
+            f.write(f'------------------- {problem_name} \n')
+            f.write(f'max MEV: {best_mev} \n')
+            f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
 
 
 if __name__ == '__main__':
@@ -105,6 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', help="Be verbose", action="store_const", dest="loglevel", const=logging.INFO, default=logging.WARNING)
     parser.add_argument('-t', '--transactions', help="Input File path containing parametric transactions", required=True)
     parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters", required=True)
+    parser.add_argument('--grid', action='store_true', help='do grid search instead of sampling')
 
     #------------ Arguments for adaptive sampling
     parser.add_argument('--name', default=None, help='name of the experiment (default: None)')
@@ -136,14 +191,14 @@ if __name__ == '__main__':
 
         for transaction in all_files:
             try:
-                main(args, transaction)
+                main(args, transaction, grid_search=args.grid)
             except:
                 print(f'======== error occured when running {transaction}')
                 continue
 
     else:
         assert os.path.isfile(args.transactions)
-        main(args, args.transactions)
+        main(args, args.transactions, grid_search=args.grid)
 
 
 

@@ -102,22 +102,29 @@ class AdaNS_sampler(object):
         '''
         if np.sum(self.good_samples)<self.minimum_num_good_samples:
             self.max_score = np.max(self.all_scores)
-            
             alpha_t = alpha_max
-            itr = 0
-            while np.sum(self.good_samples)<self.minimum_num_good_samples and itr<1000:
-                if self.max_score < 0:
-                    alpha_t = alpha_t + 0.05
-                else:
-                    alpha_t = alpha_t - 0.05
 
-                self.update_good_samples(alpha_t)
-                itr += 1
-
-            if np.sum(self.good_samples)<self.minimum_num_good_samples:
+            if self.max_score==0:
                 sorted_args = np.argsort(self.all_scores)[::-1]
-                alpha_t = self.all_scores[sorted_args[self.minimum_num_good_samples-1]] / self.all_scores[sorted_args[0]]
-                self.update_good_samples(alpha_t)
+                indices = sorted_args[:self.minimum_num_good_samples]
+                self.good_samples[indices] = True
+                assert np.sum(self.good_samples)==self.minimum_num_good_samples, (np.sum(self.good_samples), self.minimum_num_good_samples)
+
+            else:
+                itr = 0
+                while np.sum(self.good_samples)<self.minimum_num_good_samples and itr<1000:
+                    if self.max_score < 0:
+                        alpha_t = alpha_t + 0.05
+                    else:
+                        alpha_t = alpha_t - 0.05
+
+                    self.update_good_samples(alpha_t)
+                    itr += 1
+
+                if np.sum(self.good_samples)<self.minimum_num_good_samples:
+                    sorted_args = np.argsort(self.all_scores)[::-1]
+                    alpha_t = self.all_scores[sorted_args[self.minimum_num_good_samples-1]] / self.all_scores[sorted_args[0]]
+                    self.update_good_samples(alpha_t)
             
             print('changing alpha_t to %0.2f' % (alpha_t))
             self.alpha_t = alpha_t
@@ -240,6 +247,7 @@ class AdaNS_sampler(object):
                     pbar.update(1)
                     pbar.set_description('batch %s/%s (samples %s..%s/%s)'%(i+1, num_samples//n_parallel, i*n_parallel, \
                                                     (i+1)*n_parallel, num_samples))              
+            
             self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max)
 
             # modify \alpha if necessary, to make sure there are enough "good" samples
@@ -462,7 +470,7 @@ class Gaussian_sampler(AdaNS_sampler):
             return np.zeros(0, self.dimensions).astype(np.int32), []
 
         data = self.all_samples[self.good_samples]
-        assert len(np.unique(data, axis=0))==data.shape[0]
+        assert len(np.unique(data, axis=0))==data.shape[0], (len(np.unique(data, axis=0)), data.shape[0])
 
         scores = self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])
         avg_good_scores = np.mean(scores)
