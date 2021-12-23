@@ -40,6 +40,7 @@ import multiprocessing as mp
 import matplotlib
 import matplotlib.pyplot as plt
 import pickle
+
 from tqdm import tqdm
 from sklearn.mixture import GaussianMixture
 
@@ -50,7 +51,7 @@ class AdaNS_sampler(object):
         
         # shape of boundaries: <d, 2>. Specifies the minimum and maximum allowed value of the hyperparameter per dimension.
         self.boundaries = boundaries
-        self.dimensions = len(boundaries) 
+        self.dimensions = len(boundaries)
         
         self.all_samples = np.zeros((0, self.dimensions))
         self.all_scores = np.zeros(0)
@@ -76,6 +77,8 @@ class AdaNS_sampler(object):
                 sample_vectors = np.unique(sample_vectors, axis=0)
         else:
             sample_vectors = np.zeros((0, self.dimensions))
+
+
 
         return sample_vectors
     
@@ -152,7 +155,7 @@ class AdaNS_sampler(object):
 
 
     def run_sampling(self, evaluator, num_samples, n_iter, minimize=False, alpha_max=1.0, early_stopping=np.Infinity,
-        save_path='./sampling', n_parallel=1, plot_contour=False, executor=mp.Pool, param_names=None):
+        save_path='./sampling', n_parallel=1, plot_contour=False, executor=mp.Pool, param_names=None, verbose=False):
         '''
         Function to maximize given black-box function and save results to ./sampling/
             - evaluator : the objective function to be minimized
@@ -233,20 +236,25 @@ class AdaNS_sampler(object):
                 print('=> Activating early stopping')
                 break
 
+            if verbose:
+                print(samples)
+
             # evaluate current batch of samples
             scores = np.zeros(len(samples))
             n_batches = len(samples)//n_parallel if len(samples)%n_parallel==0 else (len(samples)//n_parallel)+1
-            with tqdm(total=n_batches) as pbar:
-                for i in range(n_batches):
+            # with tqdm(total=n_batches) as pbar:
+            for i in range(n_batches):
+                if n_parallel > 1:
                     batch_samples = samples[i*n_parallel:(i+1)*n_parallel]
-
                     with executor() as e:
                         scores[i*n_parallel:(i+1)*n_parallel] = list(e.map(evaluator, batch_samples))
-                        scores[i*n_parallel:(i+1)*n_parallel] *= coeff
-                    
-                    pbar.update(1)
-                    pbar.set_description('batch %s/%s (samples %s..%s/%s)'%(i+1, num_samples//n_parallel, i*n_parallel, \
-                                                    (i+1)*n_parallel, num_samples))              
+                else:
+                    scores[i] = evaluator(samples[i])
+                scores[i*n_parallel:(i+1)*n_parallel] *= coeff
+                
+                # pbar.update(1)
+                # pbar.set_description('batch %s/%s (samples %s..%s/%s)'%(i+1, num_samples//n_parallel, i*n_parallel, \
+                #                                 (i+1)*n_parallel, num_samples))              
             
             self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max)
 
@@ -1011,3 +1019,104 @@ class Zoom_sampler(AdaNS_sampler):
                 plt.close()
 
         return best_sample_overall
+
+
+class RandomOrder_sampler(AdaNS_sampler):
+    def __init__(self, length, minimum_num_good_samples, p_swap_max=0.5, u_random_portion=0., parents_portion=0.):
+        '''
+            - length: length of sequence to be reordered
+            - u_random_portion: portion of samples taken uniformly at random 
+        '''
+        boundaries = [[0, length]] * length
+        super(RandomOrder_sampler, self).__init__(boundaries, minimum_num_good_samples=minimum_num_good_samples)
+
+        self.length = length 
+        self.u_random_portion = u_random_portion
+        self.parents_portion = parents_portion,
+        self.p_swap_max = p_swap_max
+    
+
+    def sample_uniform(self, num_samples=1):
+        '''
+        function to sample unifromly from all the search-space
+            - num_samples: number of samples to take
+        '''
+        if num_samples>0:
+            sample_vectors = np.expand_dims(np.random.permutation(self.length), axis=0)
+            while len(sample_vectors) < num_samples:
+                sample_vectors = np.concatenate((sample_vectors, np.expand_dims(np.random.permutation(self.length), axis=0)), axis=0)
+                sample_vectors = np.unique(sample_vectors, axis=0)
+        else:
+            sample_vectors = np.zeros((0, self.dimensions))
+
+        return sample_vectors
+    
+    
+    def swap(self, sample, p_swap):
+        '''
+        function to swap the order in the sample
+        '''
+        #--------------- do swap
+        for idx in range(len(sample)):
+            p = np.random.rand()
+            if p <= p_swap:
+                #----------- swap with previous or next index
+                idx_swap = idx + np.random.choice([-1, 1])
+                sample[idx], sample[idx_swap] = sample[idx_swap], sample[idx]
+
+        return sample
+
+
+    def sample(self, num_samples):
+        '''
+        function to sample from the search-space
+            - num_samples: number of samples to take
+            - portion_parents: optionally can keep a portion of samples for the next round
+            - p_swap_max: upper bound on the per-element swapping
+        '''
+        print('hereeeeeeeeeeeeeeeeeee')
+        if num_samples==0:
+            return np.zeros(0, self.dimensions).astype(np.int32), None
+
+        # samples taken uniformly at random
+        n_random_samples = int(self.u_random_portion * num_samples)
+        if n_random_samples > 0.:
+            random_samples = self.sample_uniform(num_samples=n_random_samples)
+            num_samples -= n_random_samples
+        
+        num_parents = int(self.parents_portion * num_samples)
+        if num_parents > 0:
+            indices_to_keep = np.argsort(self.all_scores[self.good_samples])[::-1][:num_parents]
+            samples_to_keep = self.all_samples[self.good_samples][indices_to_keep]
+            num_samples -= num_parents
+
+        if num_samples >= int(np.sum(self.good_samples)+0.001):
+            num_samples = int(np.sum(self.good_samples)+0.001)
+            randorder_samples = self.all_samples[self.good_samples][:num_samples]
+            randorder_scores = self.all_scores[self.good_samples][:num_samples]
+        else:
+            inds = np.where(self.good_samples)[0]
+            probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples]))
+            if np.sum(probs)==0:
+                probs = np.ones_like(probs)
+            choices = np.random.choice(inds, size=num_samples, replace=False, p=probs/np.sum(probs))
+            randorder_samples = np.asarray([self.all_samples[c] for c in choices])
+            randorder_scores = np.asarray([self.all_scores[c] for c in choices])
+            
+        randorder_scores = randorder_scores - np.min(randorder_scores)
+        if np.sum(randorder_scores)==0:
+            prob_swap = np.random.uniform(0., self.p_swap_max, size=num_samples)
+        else:
+            prob_swap = (randorder_scores / np.max(randorder_scores)) * self.p_swap_max
+        for idx in range(num_samples):
+            #----------------- swapping
+            randorder_samples[idx] = self.swap(randorder_samples[idx], p_swap=prob_swap[idx])
+
+        if n_random_samples > 0.:
+            randorder_samples = np.concat((random_samples, randorder_samples), axis=0)
+        if num_parents > 0.:
+            randorder_samples = np.concat((samples_to_keep, randorder_samples), axis=0)
+
+        print('kept %d from before, sampled %d uniformly, %d with swapping'%(num_parents, n_random_samples, num_samples))
+
+        return randorder_samples, None
