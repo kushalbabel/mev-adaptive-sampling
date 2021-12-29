@@ -2,12 +2,38 @@ import os
 import argparse
 import logging
 import pickle
+import re
+from tqdm import tqdm
 import numpy as np
 import multiprocessing as mp
-from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from simulate import simulate
 from sampling_utils import Gaussian_sampler, RandomOrder_sampler
+
+def gather_results(path, pattern):
+
+    def gather_result_paths(path, pattern):
+        paths = []
+        if os.path.isdir(path):
+            if pattern in path:
+                f = os.path.join(path, 'history_info.pkl')
+                if os.path.exists(f):
+                    return [f]
+            else:
+                for d in os.listdir(path):
+                        paths += gather_result_paths(os.path.join(path, d), pattern)
+        return paths
+
+    paths = gather_result_paths(path, pattern)
+    results = {}
+    for p in paths:
+        with open(p, 'rb') as f:
+            info = pickle.load(f)
+        problem_name = re.search('(problem_[0-9]+)', p).group(1)
+        results[problem_name] = info['best_scores']
+
+    return results
 
 
 def get_params(transactions):
@@ -100,8 +126,9 @@ class Reorder_evaluator(object):
                                             n_parallel=self.n_parallel, plot_contour=False, executor=mp.Pool, param_names=params)
         print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
         print('maximum MEV:', best_mev)
+        print('-------------------------------------')
         
-        return best_mev
+        return best_mev, {p_name: v for p_name, v in zip(params, best_sample)}
 
 
 def main(args, transaction, grid_search=False):
@@ -217,26 +244,36 @@ def main(args, transaction, grid_search=False):
                                         args.alpha_max, args.early_stopping, args.save_path, args.n_parallel)
         #---------------- Run Sampling
         print('=> Starting reordering optimization')
-        best_order, best_mev = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
+        best_order, best_mev, best_variables = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
                                             alpha_max=args.alpha_max, early_stopping=args.early_stopping, save_path=args.save_path, 
-                                            n_parallel=args.n_parallel, plot_contour=False, executor=mp.Pool, param_names=None, verbose=False)
+                                            n_parallel=args.n_parallel, plot_contour=False, executor=mp.Pool, param_names=None, verbose=True)
+        
+        # check that the variable values are correct
+        vars = list(best_variables.keys())
+        evaluator = MEV_evaluator(reorder(transactions, best_order), vars)
+        mev = evaluator.evaluate([best_variables[k] for k in vars])
+        print(f'expected {best_mev}, got {mev}')
+        assert mev == best_mev
+        
         print('=> optimal transaction order:', reorder(transactions, best_order))
+        print('=> optimal variables:', best_variables)
         print('maximum MEV:', best_mev)
 
-        # with open('final_results.txt', 'a') as f:
-        #     f.write(f'------------------- {problem_name} \n')
-        #     f.write(f'max MEV: {best_mev} \n')
-        #     f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
-        
+        with open('final_results_reorder.txt', 'a') as f:
+            f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion==1.0 else problem_name))
+            f.write(f'max MEV: {best_mev} \n')
+            f.write('=> optimal transaction order: {} \n'.format(reorder(transactions, best_order)))
+            f.write(f'params: {best_variables} \n') 
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Optimization')
 
     #------------ Arguments for transactios
     parser.add_argument('-v', '--verbose', help="Be verbose", action="store_const", dest="loglevel", const=logging.INFO, default=logging.WARNING)
-    parser.add_argument('-t', '--transactions', help="Input File path containing parametric transactions", required=True)
-    parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters", required=True)
+    parser.add_argument('-t', '--transactions', help="Input File path containing parametric transactions")
+    parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters")
     parser.add_argument('--grid', action='store_true', help='do grid search instead of sampling')
+    parser.add_argument('--analyze', action='store_true', help='analzye results and generate plots')
     
     #------------ Arguments for transaction reordering
     parser.add_argument('--reorder', action='store_true', help='optimize reordering of transactions')
@@ -268,13 +305,41 @@ if __name__ == '__main__':
     args = parser.parse_args()  
     # np.random.seed(args.seed)
     
+    if args.analyze:
+        path_to_results = './artifacts'
+        scores = gather_results(path_to_results, pattern=f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents')
+        scores_random =  gather_results(path_to_results, pattern=f'{args.n_iter}iter_{args.num_samples}nsamples_1.0random_{args.parents_portion}parents')
+        
+        print(scores)
+        
+        status = np.zeros((0, args.n_iter))
+        status_random = np.zeros((0, args.n_iter))
+        for k, s in scores.items():
+            max_score = np.max(np.concatenate((s, scores_random[k]), axis=0))
+            
+            s = np.expand_dims(np.pad(s, (0, args.n_iter-len(s)), mode='edge')/max_score, axis=0)
+            s_random = np.expand_dims(np.pad(scores_random[k], (0, args.n_iter-len(scores_random[k])), mode='edge')/max_score, axis=0)
+
+            status = np.concatenate((status, s), axis=0)
+            status_random = np.concatenate((status_random, s_random), axis=0)
+            
+        plt.plot([i*args.num_samples for i in range(args.n_iter)], np.mean(status, axis=0), label='sampling')
+        plt.plot([i*args.num_samples for i in range(args.n_iter)], np.mean(status_random, axis=0), label='random')
+        plt.legend()
+        plt.savefig(os.path.join(f'score.png'))
+        exit()
+
+
+    ntransactions = 10
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(args.transactions, f) for f in os.listdir(args.transactions) if os.path.isfile(os.path.join(args.transactions, f))]
+        all_files = np.sort(all_files)[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
-
+        
         for transaction in all_files:
             try:
                 main(args, transaction, grid_search=args.grid)
+
             except:
                 print(f'======== error occured when running {transaction}')
                 continue

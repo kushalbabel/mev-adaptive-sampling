@@ -55,6 +55,7 @@ class AdaNS_sampler(object):
         
         self.all_samples = np.zeros((0, self.dimensions))
         self.all_scores = np.zeros(0)
+        self.all_subsamples = []
         
         self.good_samples = np.zeros(0)
         
@@ -98,7 +99,7 @@ class AdaNS_sampler(object):
         self.good_samples = self.all_scores>=score_thr
     
 
-    def configure_alpha(self, alpha_max=1.0):
+    def configure_alpha(self, alpha_max=1.0, verbose=False):
         '''
         function to determine \alpha based on current good samples
             - alpha_max: \alpha_max
@@ -129,13 +130,14 @@ class AdaNS_sampler(object):
                     alpha_t = self.all_scores[sorted_args[self.minimum_num_good_samples-1]] / self.all_scores[sorted_args[0]]
                     self.update_good_samples(alpha_t)
             
-            print('changing alpha_t to %0.2f' % (alpha_t))
+            if verbose:
+                print('changing alpha_t to %0.2f' % (alpha_t))
             self.alpha_t = alpha_t
 
         return self.alpha_t
     
 
-    def update(self, samples, scores, alpha_max, **kwargs):    
+    def update(self, samples, scores, alpha_max, subsamples=None, **kwargs):    
         '''
         function to add newly evaluated samples to the history
             - samples: new samples
@@ -150,6 +152,10 @@ class AdaNS_sampler(object):
         
         self.all_scores = np.concatenate((self.all_scores, scores), axis=0)[indices]
         assert len(self.all_samples)==len(self.all_scores)
+
+        if subsamples is not None:
+            self.all_subsamples += subsamples
+            self.all_subsamples = (np.asarray(self.all_subsamples)[indices]).tolist()
 
         self.update_good_samples(alpha_max)
 
@@ -214,6 +220,7 @@ class AdaNS_sampler(object):
         # apply the sampling algorithm
         best_samples = []
         best_scores = []
+        best_subsamples = []
         alpha_vals = []
         num_not_improve = 0
         for iteration in range(n_iter):
@@ -224,7 +231,7 @@ class AdaNS_sampler(object):
             else:
                 max_score_improv = self.max_score - prev_max_score
                 prev_max_score = self.max_score
-                samples, origins = self.sample(num_samples)
+                samples, origins = self.sample(num_samples, verbose=verbose)
 
                 # if the percentage improvement in the maximum score is smaller than 0.1%, activate early stopping
                 if max_score_improv==0: #(max_score_improv/prev_max_score) < 0.001:
@@ -236,30 +243,44 @@ class AdaNS_sampler(object):
                 print('=> Activating early stopping')
                 break
 
-            if verbose:
-                print(samples)
+            if origins is not None:
+                indices_to_keep = np.nonzero(np.asarray(origins) != 'P')
+                samples = samples[indices_to_keep]
 
             # evaluate current batch of samples
             scores = np.zeros(len(samples))
+            subsamples = []
             n_batches = len(samples)//n_parallel if len(samples)%n_parallel==0 else (len(samples)//n_parallel)+1
             # with tqdm(total=n_batches) as pbar:
             for i in range(n_batches):
                 if n_parallel > 1:
                     batch_samples = samples[i*n_parallel:(i+1)*n_parallel]
                     with executor() as e:
-                        scores[i*n_parallel:(i+1)*n_parallel] = list(e.map(evaluator, batch_samples))
+                        batch_output = list(e.map(evaluator, batch_samples))
+                    if isinstance(batch_output[0], tuple):
+                        scores[i*n_parallel:(i+1)*n_parallel] = [batch_output[i][0] for i in range(len(batch_output))]
+                        subsamples += [batch_output[i][1] for i in range(len(batch_output))]
+                    else:
+                        scores[i*n_parallel:(i+1)*n_parallel] = batch_output
                 else:
-                    scores[i] = evaluator(samples[i])
+                    output = evaluator(samples[i])
+                    if isinstance(output, tuple):
+                        scores[i] = output[0]
+                        subsamples += [output[1]]
+                    else:
+                        scores[i] = output
+                
                 scores[i*n_parallel:(i+1)*n_parallel] *= coeff
                 
                 # pbar.update(1)
                 # pbar.set_description('batch %s/%s (samples %s..%s/%s)'%(i+1, num_samples//n_parallel, i*n_parallel, \
-                #                                 (i+1)*n_parallel, num_samples))              
-            
-            self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max)
+                #                                 (i+1)*n_parallel, num_samples))    
+
+            subsamples = None if len(subsamples) == 0 else subsamples 
+            self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max, subsamples=subsamples)
 
             # modify \alpha if necessary, to make sure there are enough "good" samples
-            alpha = self.configure_alpha(alpha_max)
+            alpha = self.configure_alpha(alpha_max, verbose=verbose)
             alpha_vals.append(alpha)
 
             # optionally visualize the current samples on the search-space
@@ -280,14 +301,19 @@ class AdaNS_sampler(object):
             best_scores.append(np.max(self.all_scores))
             id_best = np.argmax(self.all_scores)
             best_samples.append(self.all_samples[id_best])
+            if subsamples is not None:
+                best_subsamples.append(self.all_subsamples[id_best])
             
-            print('=> iter: %d, average score: %.3f, best score: %0.3f' %(iteration, np.mean(scores), best_scores[-1]))
+            if verbose:
+                print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
 
         info = {'best_samples': np.asarray(best_samples),
                 'best_scores': np.asarray(best_scores),
                 'alpha_vals': alpha_vals,
                 'all_samples': self.all_samples,
                 'all_scores': self.all_scores,}
+        if len(self.all_subsamples)>0:
+            info['all_subsamples'] = self.all_subsamples
 
         path_to_info = os.path.join(save_path, 'history_info.pkl')
         with open(path_to_info, 'wb') as f:
@@ -309,7 +335,10 @@ class AdaNS_sampler(object):
                 plt.savefig(os.path.join(path_to_contour, 'score_contour_final.png'))
                 plt.close()
 
-        return best_sample_overall, best_scores[id_best_overall]
+        if len(self.all_subsamples)>0:
+            return best_sample_overall, best_scores[id_best_overall], best_subsamples[id_best_overall]
+        else:
+            return best_sample_overall, best_scores[id_best_overall]
 
 
 class Genetic_sampler(AdaNS_sampler):
@@ -385,13 +414,13 @@ class Genetic_sampler(AdaNS_sampler):
         return father, mother
 
 
-    def sample(self, num_samples):
+    def sample(self, num_samples, **kwargs):
         '''
         function to sample from the search-space
             - num_samples: number of samples to take
         '''
         if num_samples==0:
-            return np.zeros(0, self.dimensions).astype(np.int32)
+            return np.zeros((0, self.dimensions)).astype(np.int32)
 
         num_samples = num_samples + np.mod(num_samples, 2)
 
@@ -469,13 +498,13 @@ class Gaussian_sampler(AdaNS_sampler):
                                 "pair selection should be one of ['random','top_scores','top_and_nearest','top_and_furthest','top_and_random']"
 
 
-    def sample(self, num_samples):
+    def sample(self, num_samples, verbose=True, **kwargs):
         '''
         function to sample from the search-space
             - num_samples: number of samples to take
         '''
         if num_samples==0:
-            return np.zeros(0, self.dimensions).astype(np.int32), []
+            return np.zeros((0, self.dimensions)).astype(np.int32), []
 
         data = self.all_samples[self.good_samples]
         assert len(np.unique(data, axis=0))==data.shape[0], (len(np.unique(data, axis=0)), data.shape[0])
@@ -532,7 +561,8 @@ class Gaussian_sampler(AdaNS_sampler):
         random_sampling = int(num_samples*self.u_random_portion+0.001)   
         random_samples = self.sample_uniform(num_samples=random_sampling)
                
-        print('sampled %d uniformly, %d with local gaussians, %d with cross gaussians'%(len(random_samples), len(local_samples), len(cross_samples)))
+        if verbose:
+            print('sampled %d uniformly, %d with local gaussians, %d with cross gaussians'%(len(random_samples), len(local_samples), len(cross_samples)))
         
         origins_random = ['U'] * len(random_samples)
         origins_local = ['L'] * len(local_samples)
@@ -559,7 +589,7 @@ class Gaussian_sampler(AdaNS_sampler):
         return sample_vectors, origins
 
 
-    def update(self, samples, scores, origins, alpha_max):    
+    def update(self, samples, scores, origins, alpha_max, subsamples=None):    
         '''
         function to add newly evaluated samples to the history
             - samples: new samples
@@ -567,7 +597,7 @@ class Gaussian_sampler(AdaNS_sampler):
             - origins: origin of new samples (zoom, genetic, gaussian-local, gaussian-cross, uniform-random)
             - alpha_max: current \alpha_max
         ''' 
-        super(Gaussian_sampler, self).update(samples, scores, alpha_max)
+        super(Gaussian_sampler, self).update(samples, scores, alpha_max, subsamples)
         self.origins += origins  
     
 
@@ -734,7 +764,7 @@ class Zoom_sampler(AdaNS_sampler):
         
         indices = np.arange(0, self.num_regions)
         if num_samples==0:
-            return np.zeros(0, self.dimensions).astype(np.int32)
+            return np.zeros((0, self.dimensions)).astype(np.int32)
 
         # Choose samples from good regions with non-uniform density
         probs = self.per_region_sampling_probs/np.sum(self.per_region_sampling_probs)
@@ -1032,8 +1062,10 @@ class RandomOrder_sampler(AdaNS_sampler):
 
         self.length = length 
         self.u_random_portion = u_random_portion
-        self.parents_portion = parents_portion,
+        self.parents_portion = parents_portion
         self.p_swap_max = p_swap_max
+
+        assert u_random_portion + parents_portion <= 1., 'sum of portions must be <=1'
     
 
     def sample_uniform(self, num_samples=1):
@@ -1061,62 +1093,71 @@ class RandomOrder_sampler(AdaNS_sampler):
             p = np.random.rand()
             if p <= p_swap:
                 #----------- swap with previous or next index
-                idx_swap = idx + np.random.choice([-1, 1])
+                idx_swap = (idx + np.random.choice([-1, 1])) % self.length
                 sample[idx], sample[idx_swap] = sample[idx_swap], sample[idx]
 
         return sample
 
 
-    def sample(self, num_samples):
+    def sample(self, num_samples, verbose=True, **kwargs):
         '''
         function to sample from the search-space
             - num_samples: number of samples to take
             - portion_parents: optionally can keep a portion of samples for the next round
             - p_swap_max: upper bound on the per-element swapping
         '''
-        print('hereeeeeeeeeeeeeeeeeee')
         if num_samples==0:
-            return np.zeros(0, self.dimensions).astype(np.int32), None
+            return np.zeros((0, self.dimensions)).astype(np.int32), None
 
         # samples taken uniformly at random
         n_random_samples = int(self.u_random_portion * num_samples)
         if n_random_samples > 0.:
             random_samples = self.sample_uniform(num_samples=n_random_samples)
-            num_samples -= n_random_samples
         
         num_parents = int(self.parents_portion * num_samples)
         if num_parents > 0:
             indices_to_keep = np.argsort(self.all_scores[self.good_samples])[::-1][:num_parents]
             samples_to_keep = self.all_samples[self.good_samples][indices_to_keep]
-            num_samples -= num_parents
-
-        if num_samples >= int(np.sum(self.good_samples)+0.001):
-            num_samples = int(np.sum(self.good_samples)+0.001)
-            randorder_samples = self.all_samples[self.good_samples][:num_samples]
-            randorder_scores = self.all_scores[self.good_samples][:num_samples]
-        else:
-            inds = np.where(self.good_samples)[0]
-            probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples]))
-            if np.sum(probs)==0:
-                probs = np.ones_like(probs)
-            choices = np.random.choice(inds, size=num_samples, replace=False, p=probs/np.sum(probs))
-            randorder_samples = np.asarray([self.all_samples[c] for c in choices])
-            randorder_scores = np.asarray([self.all_scores[c] for c in choices])
             
-        randorder_scores = randorder_scores - np.min(randorder_scores)
-        if np.sum(randorder_scores)==0:
-            prob_swap = np.random.uniform(0., self.p_swap_max, size=num_samples)
+        num_samples -= (num_parents + n_random_samples)
+        if num_samples ==0:
+            randorder_samples = np.zeros((0, self.dimensions)).astype(np.int32)
         else:
-            prob_swap = (randorder_scores / np.max(randorder_scores)) * self.p_swap_max
-        for idx in range(num_samples):
-            #----------------- swapping
-            randorder_samples[idx] = self.swap(randorder_samples[idx], p_swap=prob_swap[idx])
+            if num_samples >= int(np.sum(self.good_samples)+0.001):
+                num_samples = int(np.sum(self.good_samples)+0.001)
+                assert num_samples > 0
+                randorder_samples = self.all_samples[self.good_samples][:num_samples]
+                randorder_scores = self.all_scores[self.good_samples][:num_samples]
+            else:
+                inds = np.where(self.good_samples)[0]
+                probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples]))
+                if np.sum(probs)==0:
+                    probs = np.ones_like(probs)
+                choices = np.random.choice(inds, size=num_samples, replace=False, p=probs/np.sum(probs))
+                assert len(choices)==num_samples
+                randorder_samples = np.asarray([self.all_samples[c] for c in choices])
+                randorder_scores = np.asarray([self.all_scores[c] for c in choices])
+                
+            randorder_scores = randorder_scores - np.min(randorder_scores)
+            if np.sum(randorder_scores)==0:
+                prob_swap = np.random.uniform(0., self.p_swap_max, size=num_samples)
+            else:
+                prob_swap = (randorder_scores / np.max(randorder_scores)) * self.p_swap_max
+            for idx in range(num_samples):
+                #----------------- swapping
+                randorder_samples[idx] = self.swap(randorder_samples[idx], p_swap=prob_swap[idx])
 
+        origins = ['R'] * len(randorder_samples)
         if n_random_samples > 0.:
-            randorder_samples = np.concat((random_samples, randorder_samples), axis=0)
+            randorder_samples = np.concatenate((random_samples, randorder_samples), axis=0)
+            origins = ['U'] * len(random_samples) + origins
         if num_parents > 0.:
-            randorder_samples = np.concat((samples_to_keep, randorder_samples), axis=0)
+            randorder_samples = np.concatenate((samples_to_keep, randorder_samples), axis=0)
+            origins = ['P'] * len(samples_to_keep) + origins
 
-        print('kept %d from before, sampled %d uniformly, %d with swapping'%(num_parents, n_random_samples, num_samples))
+        if verbose:
+            print('kept %d from before, sampled %d uniformly, %d with swapping'%(num_parents, n_random_samples, num_samples))
 
-        return randorder_samples, None
+        assert len(origins)==randorder_samples.shape[0]
+
+        return randorder_samples, origins
