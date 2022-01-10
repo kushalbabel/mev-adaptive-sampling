@@ -35,7 +35,6 @@ def gather_results(path, pattern):
 
     return results
 
-
 def get_params(transactions):
     params = set()
     for transaction in transactions:
@@ -134,13 +133,14 @@ class Reorder_evaluator(object):
 def main(args, transaction, grid_search=False):
     if args.name is None:
         if args.reorder:
-            args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents'
+            args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents_{args.p_swap_max}p_swap'
         else:
             args.name = f'{args.n_iter_gauss}iter_{args.num_samples_gauss}nsamples_{args.u_random_portion_gauss}random_{args.local_portion}local_{args.cross_portion}_cross'
     problem_name = os.path.basename(transaction)
+    testset = os.path.basename(os.path.dirname(transaction))
     print(f'----------{problem_name}----------')
 
-    args.save_path = os.path.join('artifacts', problem_name, args.name)
+    args.save_path = os.path.join('artifacts', testset, problem_name, args.name)
     print('=> Saving artifacts to %s' % args.save_path)
 
     os.makedirs(args.save_path, exist_ok=True)  
@@ -182,10 +182,10 @@ def main(args, transaction, grid_search=False):
             print('maximum MEV:', best_mev)
 
             with open('final_results.txt', 'a') as f:
-                f.write(f'------------------- {problem_name} \n')
+                f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion_gauss==1.0 else problem_name))
                 f.write(f'max MEV: {best_mev} \n')
                 f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
-        else:
+        else:  # perform exhaustive grid search to optimize alpha values
             path_to_save = os.path.join('artifacts', problem_name, 'grid_search')
             os.makedirs(path_to_save, exist_ok=True)
 
@@ -294,7 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_iter_gauss', default=50, type=int, help='number of sampling iterations for finding alphas(default: 50)')
     parser.add_argument('--n_parallel', default=1, type=int, help='number of cores for parallel evaluations (default:1)')
     parser.add_argument('--alpha_max', default=1.0, type=float, help='alpha_max parameter (default:1.0)')
-    parser.add_argument('--early_stopping', default=10, type=int, help='number of iterations without improvement to activate early stopping (default: 1000)')
+    parser.add_argument('--early_stopping', default=100, type=int, help='number of iterations without improvement to activate early stopping (default: 10)')
 
     #------ Gaussian Sampler parameters
     parser.add_argument('--u_random_portion_gauss', default=0.2, type=float, help='portion of samples to take unifromly random from the entire space (default:0.2)')
@@ -306,34 +306,51 @@ if __name__ == '__main__':
     # np.random.seed(args.seed)
     
     if args.analyze:
+        patterns = ['20iter_10nsamples_0.2random_0.0parents_0.5p_swap',
+                    '10iter_20nsamples_0.2random_0.0parents_0.5p_swap'
+                    # '20iter_10nsamples_0.2random_0.0parents_0.8p_swap',
+                    # '20iter_10nsamples_0.2random_0.0parents_0.3p_swap',
+                    # '20iter_10nsamples_1.0random_0.0parents'
+                    ]
         path_to_results = './artifacts'
-        scores = gather_results(path_to_results, pattern=f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents')
-        scores_random =  gather_results(path_to_results, pattern=f'{args.n_iter}iter_{args.num_samples}nsamples_1.0random_{args.parents_portion}parents')
-        
-        print(scores)
-        
-        status = np.zeros((0, args.n_iter))
-        status_random = np.zeros((0, args.n_iter))
-        for k, s in scores.items():
-            max_score = np.max(np.concatenate((s, scores_random[k]), axis=0))
-            
-            s = np.expand_dims(np.pad(s, (0, args.n_iter-len(s)), mode='edge')/max_score, axis=0)
-            s_random = np.expand_dims(np.pad(scores_random[k], (0, args.n_iter-len(scores_random[k])), mode='edge')/max_score, axis=0)
 
-            status = np.concatenate((status, s), axis=0)
-            status_random = np.concatenate((status_random, s_random), axis=0)
-            
-        plt.plot([i*args.num_samples for i in range(args.n_iter)], np.mean(status, axis=0), label='sampling')
-        plt.plot([i*args.num_samples for i in range(args.n_iter)], np.mean(status_random, axis=0), label='random')
+        scores = []
+        for p in patterns:
+            scores.append(gather_results(path_to_results, pattern=p))
+            print(f'found {len(scores[-1].keys())} results with pattern {p}')
+        #------ adding random experiments
+        scores.append(gather_results('./artifacts_', pattern='20iter_10nsamples_1.0random_0.0parents'))
+        patterns.append('20iter_10nsamples_1.0random_0.0parents')
+        print(f'found {len(scores[-1].keys())} results with pattern 20iter_10nsamples_1.0random_0.0parents')
+
+        status = [np.zeros((0, args.n_iter))] * len(scores)
+        for k, s in scores[0].items():
+            try:
+                max_score = np.max(np.concatenate([scores[i][k] for i in range(len(scores))], axis=0))
+            except:
+                print(f'problem {k} did not exist in all optimization logs')
+                continue
+        
+            s = np.expand_dims(np.pad(s, (0, args.n_iter-len(s)), mode='edge')/max_score, axis=0)
+            status[0] = np.concatenate((status[0], s), axis=0)
+
+            for i in range(1, len(scores)):
+                s_ = np.expand_dims(np.pad(scores[i][k], (0, args.n_iter-len(scores[i][k])), mode='edge')/max_score, axis=0)
+                status[i] = np.concatenate((status[i], s_), axis=0)
+
+        for i in range(len(scores)):
+            plt.plot([i*args.num_samples for i in range(args.n_iter)], np.mean(status[i], axis=0), label=patterns[i])
+        
         plt.legend()
+        # plt.ylim((0.9, 1.))
         plt.savefig(os.path.join(f'score.png'))
+        
         exit()
 
-
-    ntransactions = 10
+    ntransactions = 60
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(args.transactions, f) for f in os.listdir(args.transactions) if os.path.isfile(os.path.join(args.transactions, f))]
-        all_files = np.sort(all_files)[:ntransactions]
+        all_files = np.sort(all_files)[ntransactions:]
         print(f'found {len(all_files)} files for optimization')
         
         for transaction in all_files:

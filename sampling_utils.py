@@ -44,6 +44,47 @@ import pickle
 from tqdm import tqdm
 from sklearn.mixture import GaussianMixture
 
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f', summary_type='average'):
+        self.name = name
+        self.fmt = fmt
+        self.summary_type = summary_type
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+    
+    def summary(self):
+        fmtstr = ''
+        if self.summary_type == 'none':
+            fmtstr = ''
+        elif self.summary_type == 'average':
+            fmtstr = '{name} {avg:.3f}'
+        elif self.summary_type == 'sum':
+            fmtstr = '{name} {sum:.3f}'
+        elif self.summary_type == 'count':
+            fmtstr = '{name} {count:.3f}'
+        else:
+            raise ValueError('invalid summary type %r' % self.summary_type)
+        
+        return fmtstr.format(**self.__dict__)
+
+
 class AdaNS_sampler(object):
     def __init__(self, boundaries, minimum_num_good_samples):
         # minimum number of good samples (b) used to find the value of \alpha for each iteration
@@ -223,7 +264,10 @@ class AdaNS_sampler(object):
         best_subsamples = []
         alpha_vals = []
         num_not_improve = 0
+
+        runtime = AverageMeter('Time', ':6.3f')
         for iteration in range(n_iter):
+            t0 = time.time()
             if iteration==0:
                 samples = self.sample_uniform(num_samples)
                 origins = ['U']*len(samples)
@@ -304,8 +348,12 @@ class AdaNS_sampler(object):
             if subsamples is not None:
                 best_subsamples.append(self.all_subsamples[id_best])
             
+            runtime.update(time.time()-t0)
             if verbose:
                 print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
+                print('=> average time per iteration: %.2fs' %(runtime.summary()))
+
+        print('=> average time per iteration: %.2fs' %(runtime.summary()))
 
         info = {'best_samples': np.asarray(best_samples),
                 'best_scores': np.asarray(best_scores),
@@ -1094,6 +1142,13 @@ class RandomOrder_sampler(AdaNS_sampler):
             if p <= p_swap:
                 #----------- swap with previous or next index
                 idx_swap = (idx + np.random.choice([-1, 1])) % self.length
+                # if idx==self.length-1:
+                #     idx_swap = idx-1
+                # elif idx==0:
+                #     idx_swap = idx+1
+                # else:
+                #     idx_swap = (idx + np.random.choice([-1, 1]))
+                # assert 0 <= idx_swap < self.length
                 sample[idx], sample[idx_swap] = sample[idx_swap], sample[idx]
 
         return sample
@@ -1138,6 +1193,7 @@ class RandomOrder_sampler(AdaNS_sampler):
                 randorder_samples = np.asarray([self.all_samples[c] for c in choices])
                 randorder_scores = np.asarray([self.all_scores[c] for c in choices])
                 
+            randorder_scores *= -1.
             randorder_scores = randorder_scores - np.min(randorder_scores)
             if np.sum(randorder_scores)==0:
                 prob_swap = np.random.uniform(0., self.p_swap_max, size=num_samples)
