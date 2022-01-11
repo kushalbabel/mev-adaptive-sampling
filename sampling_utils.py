@@ -351,9 +351,9 @@ class AdaNS_sampler(object):
             runtime.update(time.time()-t0)
             if verbose:
                 print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
-                print('=> average time per iteration: %.2fs' %(runtime.summary()))
+                print('=> average time per iteration:', runtime.summary())
 
-        print('=> average time per iteration: %.2fs' %(runtime.summary()))
+        print('=> average time per iteration:', runtime.summary())
 
         info = {'best_samples': np.asarray(best_samples),
                 'best_scores': np.asarray(best_scores),

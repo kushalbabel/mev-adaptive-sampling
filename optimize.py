@@ -294,7 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_iter_gauss', default=50, type=int, help='number of sampling iterations for finding alphas(default: 50)')
     parser.add_argument('--n_parallel', default=1, type=int, help='number of cores for parallel evaluations (default:1)')
     parser.add_argument('--alpha_max', default=1.0, type=float, help='alpha_max parameter (default:1.0)')
-    parser.add_argument('--early_stopping', default=100, type=int, help='number of iterations without improvement to activate early stopping (default: 10)')
+    parser.add_argument('--early_stopping', default=10, type=int, help='number of iterations without improvement to activate early stopping (default: 10)')
 
     #------ Gaussian Sampler parameters
     parser.add_argument('--u_random_portion_gauss', default=0.2, type=float, help='portion of samples to take unifromly random from the entire space (default:0.2)')
@@ -306,11 +306,12 @@ if __name__ == '__main__':
     # np.random.seed(args.seed)
     
     if args.analyze:
-        patterns = ['20iter_10nsamples_0.2random_0.0parents_0.5p_swap',
-                    '10iter_20nsamples_0.2random_0.0parents_0.5p_swap'
+        patterns = [
+                    '10iter_20nsamples_0.2random_0.0parents_0.5p_swap',
+                    '20iter_10nsamples_0.2random_0.0parents_0.5p_swap',
                     # '20iter_10nsamples_0.2random_0.0parents_0.8p_swap',
                     # '20iter_10nsamples_0.2random_0.0parents_0.3p_swap',
-                    # '20iter_10nsamples_1.0random_0.0parents'
+                    '20iter_10nsamples_1.0random_0.0parents',
                     ]
         path_to_results = './artifacts'
 
@@ -319,12 +320,13 @@ if __name__ == '__main__':
             scores.append(gather_results(path_to_results, pattern=p))
             print(f'found {len(scores[-1].keys())} results with pattern {p}')
         #------ adding random experiments
-        scores.append(gather_results('./artifacts_', pattern='20iter_10nsamples_1.0random_0.0parents'))
-        patterns.append('20iter_10nsamples_1.0random_0.0parents')
-        print(f'found {len(scores[-1].keys())} results with pattern 20iter_10nsamples_1.0random_0.0parents')
 
+        common_keys = list(scores[0].keys())
+        for i in range(1, len(scores)):
+            common_keys = np.intersect1d(common_keys, list(scores[i].keys()))
         status = [np.zeros((0, args.n_iter))] * len(scores)
-        for k, s in scores[0].items():
+        for k in common_keys:
+            s = scores[0][k]
             try:
                 max_score = np.max(np.concatenate([scores[i][k] for i in range(len(scores))], axis=0))
             except:
