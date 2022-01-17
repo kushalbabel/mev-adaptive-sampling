@@ -1141,14 +1141,14 @@ class RandomOrder_sampler(AdaNS_sampler):
             p = np.random.rand()
             if p <= p_swap:
                 #----------- swap with previous or next index
-                idx_swap = (idx + np.random.choice([-1, 1])) % self.length
-                # if idx==self.length-1:
-                #     idx_swap = idx-1
-                # elif idx==0:
-                #     idx_swap = idx+1
-                # else:
-                #     idx_swap = (idx + np.random.choice([-1, 1]))
-                # assert 0 <= idx_swap < self.length
+                # idx_swap = (idx + np.random.choice([-1, 1])) % self.length
+                if idx==self.length-1:
+                    idx_swap = idx-1
+                elif idx==0:
+                    idx_swap = idx+1
+                else:
+                    idx_swap = (idx + np.random.choice([-1, 1]))
+                assert 0 <= idx_swap < self.length
                 sample[idx], sample[idx_swap] = sample[idx_swap], sample[idx]
 
         return sample

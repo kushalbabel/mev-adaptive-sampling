@@ -11,30 +11,6 @@ import matplotlib.pyplot as plt
 from simulate import simulate
 from sampling_utils import Gaussian_sampler, RandomOrder_sampler
 
-def gather_results(path, pattern):
-
-    def gather_result_paths(path, pattern):
-        paths = []
-        if os.path.isdir(path):
-            if pattern in path:
-                f = os.path.join(path, 'history_info.pkl')
-                if os.path.exists(f):
-                    return [f]
-            else:
-                for d in os.listdir(path):
-                        paths += gather_result_paths(os.path.join(path, d), pattern)
-        return paths
-
-    paths = gather_result_paths(path, pattern)
-    results = {}
-    for p in paths:
-        with open(p, 'rb') as f:
-            info = pickle.load(f)
-        problem_name = re.search('(problem_[0-9]+)', p).group(1)
-        results[problem_name] = info['best_scores']
-
-    return results
-
 def get_params(transactions):
     params = set()
     for transaction in transactions:
@@ -245,7 +221,7 @@ def main(args, transaction, grid_search=False):
         #---------------- Run Sampling
         print('=> Starting reordering optimization')
         best_order, best_mev, best_variables = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
-                                            alpha_max=args.alpha_max, early_stopping=args.early_stopping, save_path=args.save_path, 
+                                            alpha_max=args.alpha_max, early_stopping=1000, save_path=args.save_path, 
                                             n_parallel=args.n_parallel, plot_contour=False, executor=mp.Pool, param_names=None, verbose=True)
         
         # check that the variable values are correct
@@ -273,7 +249,6 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--transactions', help="Input File path containing parametric transactions")
     parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters")
     parser.add_argument('--grid', action='store_true', help='do grid search instead of sampling')
-    parser.add_argument('--analyze', action='store_true', help='analzye results and generate plots')
     
     #------------ Arguments for transaction reordering
     parser.add_argument('--reorder', action='store_true', help='optimize reordering of transactions')
@@ -304,55 +279,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()  
     # np.random.seed(args.seed)
-    
-    if args.analyze:
-        patterns = [
-                    '10iter_20nsamples_0.2random_0.0parents_0.5p_swap',
-                    '20iter_10nsamples_0.2random_0.0parents_0.5p_swap',
-                    # '20iter_10nsamples_0.2random_0.0parents_0.8p_swap',
-                    # '20iter_10nsamples_0.2random_0.0parents_0.3p_swap',
-                    '20iter_10nsamples_1.0random_0.0parents',
-                    ]
-        path_to_results = './artifacts'
-
-        scores = []
-        for p in patterns:
-            scores.append(gather_results(path_to_results, pattern=p))
-            print(f'found {len(scores[-1].keys())} results with pattern {p}')
-        #------ adding random experiments
-
-        common_keys = list(scores[0].keys())
-        for i in range(1, len(scores)):
-            common_keys = np.intersect1d(common_keys, list(scores[i].keys()))
-        status = [np.zeros((0, args.n_iter))] * len(scores)
-        for k in common_keys:
-            s = scores[0][k]
-            try:
-                max_score = np.max(np.concatenate([scores[i][k] for i in range(len(scores))], axis=0))
-            except:
-                print(f'problem {k} did not exist in all optimization logs')
-                continue
-        
-            s = np.expand_dims(np.pad(s, (0, args.n_iter-len(s)), mode='edge')/max_score, axis=0)
-            status[0] = np.concatenate((status[0], s), axis=0)
-
-            for i in range(1, len(scores)):
-                s_ = np.expand_dims(np.pad(scores[i][k], (0, args.n_iter-len(scores[i][k])), mode='edge')/max_score, axis=0)
-                status[i] = np.concatenate((status[i], s_), axis=0)
-
-        for i in range(len(scores)):
-            plt.plot([i*args.num_samples for i in range(args.n_iter)], np.mean(status[i], axis=0), label=patterns[i])
-        
-        plt.legend()
-        # plt.ylim((0.9, 1.))
-        plt.savefig(os.path.join(f'score.png'))
-        
-        exit()
 
     ntransactions = 60
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(args.transactions, f) for f in os.listdir(args.transactions) if os.path.isfile(os.path.join(args.transactions, f))]
-        all_files = np.sort(all_files)[ntransactions:]
+        all_files = np.sort(all_files)#[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
         
         for transaction in all_files:
