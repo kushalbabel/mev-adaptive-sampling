@@ -109,14 +109,16 @@ class Reorder_evaluator(object):
 def main(args, transaction, grid_search=False):
     if args.name is None:
         if args.reorder:
-            args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents_{args.p_swap_max}p_swap'
+            args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents_{args.p_swap_min},{args.p_swap_max}p_swap'
+        elif grid_search:
+            args.name = 'grid_search'
         else:
             args.name = f'{args.n_iter_gauss}iter_{args.num_samples_gauss}nsamples_{args.u_random_portion_gauss}random_{args.local_portion}local_{args.cross_portion}_cross'
     problem_name = os.path.basename(transaction)
     testset = os.path.basename(os.path.dirname(transaction))
     print(f'----------{problem_name}----------')
 
-    args.save_path = os.path.join('artifacts', testset, problem_name, args.name)
+    args.save_path = os.path.join('artifacts_adjacent_subset', testset, problem_name, args.name)
     print('=> Saving artifacts to %s' % args.save_path)
 
     os.makedirs(args.save_path, exist_ok=True)  
@@ -162,7 +164,7 @@ def main(args, transaction, grid_search=False):
                 f.write(f'max MEV: {best_mev} \n')
                 f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
         else:  # perform exhaustive grid search to optimize alpha values
-            path_to_save = os.path.join('artifacts', problem_name, 'grid_search')
+            path_to_save = args.save_path
             os.makedirs(path_to_save, exist_ok=True)
 
             if not os.path.exists(os.path.join(path_to_save, 'scores.pkl')):
@@ -213,7 +215,9 @@ def main(args, transaction, grid_search=False):
 
     else:
         sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
-                                    p_swap_max=args.p_swap_max, u_random_portion=args.u_random_portion, parents_portion=args.parents_portion)
+                                    p_swap_min=args.p_swap_min, p_swap_max=args.p_swap_max, 
+                                    u_random_portion=args.u_random_portion, parents_portion=args.parents_portion,
+                                    swap_method='adjacent_subset')
 
         evaluator = Reorder_evaluator(transactions, domain, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                         args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
@@ -256,6 +260,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_samples', default=50, type=int, help='per-iteration sample size for reordering (default: 50)')
     parser.add_argument('--u_random_portion', default=0.2, type=float, help='portion of ranodm reorderings (default:0.2)')
     parser.add_argument('--parents_portion', default=0.1, type=float, help='portion of good samples to keep for the next round (default:0.1)')
+    parser.add_argument('--p_swap_min', default=0.0, type=float, help='minimum probability of per-element swap (default:0.0)')
     parser.add_argument('--p_swap_max', default=0.5, type=float, help='maximum probability of per-element swap (default:0.5)')
 
     #------------ Arguments for adaptive sampling
@@ -280,10 +285,10 @@ if __name__ == '__main__':
     args = parser.parse_args()  
     # np.random.seed(args.seed)
 
-    ntransactions = 60
+    ntransactions = 40
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(args.transactions, f) for f in os.listdir(args.transactions) if os.path.isfile(os.path.join(args.transactions, f))]
-        all_files = np.sort(all_files)#[:ntransactions]
+        all_files = np.sort(all_files)[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
         
         for transaction in all_files:

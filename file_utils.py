@@ -5,7 +5,7 @@ import re
 import csv
 import numpy as np
 
-def move_files(file_patterns, orig_path='./artifacts_', path_to_move='./artifacts'):
+def copy_files(file_patterns, orig_path='./artifacts_', path_to_move='./artifacts'):
     for problem in os.listdir(orig_path):
         subfolders = os.listdir(os.path.join(orig_path, problem))
         for sf in subfolders:
@@ -80,7 +80,12 @@ def dump_csvs(path, testset, pattern):
         writer.writerows(rows)
 
 if __name__ == '__main__':
-    dump_csvs('./artifacts', testset='tests', pattern='50iter_50nsamples_0.2random_0.4local_0.4_cross')
+    # dump_csvs('./artifacts_earlystopping', testset='tests', pattern='50iter_50nsamples_0.2random_0.4local_0.4_cross')
+    
+    # file_patterns = ['30iter_20nsamples_1.0random_0.0parents_0.5p_swap']
+    # copy_files(file_patterns, orig_path='./artifacts_/tests', path_to_move='./artifacts/tests')
+
+    count_transactions(path_to_testset='/home/kb742/mev-adaptive-sampling/tests/')
 
 
 

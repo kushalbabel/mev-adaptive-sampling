@@ -1100,7 +1100,7 @@ class Zoom_sampler(AdaNS_sampler):
 
 
 class RandomOrder_sampler(AdaNS_sampler):
-    def __init__(self, length, minimum_num_good_samples, p_swap_max=0.5, u_random_portion=0., parents_portion=0.):
+    def __init__(self, length, minimum_num_good_samples, p_swap_min=0.0, p_swap_max=0.5, u_random_portion=0., parents_portion=0., swap_method='adjacent'):
         '''
             - length: length of sequence to be reordered
             - u_random_portion: portion of samples taken uniformly at random 
@@ -1111,7 +1111,9 @@ class RandomOrder_sampler(AdaNS_sampler):
         self.length = length 
         self.u_random_portion = u_random_portion
         self.parents_portion = parents_portion
+        self.p_swap_min = p_swap_min
         self.p_swap_max = p_swap_max
+        self.swap_method = swap_method
 
         assert u_random_portion + parents_portion <= 1., 'sum of portions must be <=1'
     
@@ -1132,7 +1134,7 @@ class RandomOrder_sampler(AdaNS_sampler):
         return sample_vectors
     
     
-    def swap(self, sample, p_swap):
+    def swap_adjacent(self, sample, p_swap):
         '''
         function to swap the order in the sample
         '''
@@ -1154,6 +1156,25 @@ class RandomOrder_sampler(AdaNS_sampler):
         return sample
 
 
+    def swap_adjacent_subset(self, sample, p_swap):
+        n_swaps = int(p_swap * self.length + 0.001)
+        indices_to_swap = np.random.choice(self.length, size=n_swaps, replace=False)
+        
+        for idx in indices_to_swap:
+            #----------- swap with previous or next index
+            # idx_swap = (idx + np.random.choice([-1, 1])) % self.length
+            if idx==self.length-1:
+                idx_swap = idx-1
+            elif idx==0:
+                idx_swap = idx+1
+            else:
+                idx_swap = (idx + np.random.choice([-1, 1]))
+            assert 0 <= idx_swap < self.length
+            sample[idx], sample[idx_swap] = sample[idx_swap], sample[idx]
+
+        return sample
+    
+    
     def sample(self, num_samples, verbose=True, **kwargs):
         '''
         function to sample from the search-space
@@ -1161,6 +1182,7 @@ class RandomOrder_sampler(AdaNS_sampler):
             - portion_parents: optionally can keep a portion of samples for the next round
             - p_swap_max: upper bound on the per-element swapping
         '''
+        num_samples_orig = num_samples
         if num_samples==0:
             return np.zeros((0, self.dimensions)).astype(np.int32), None
 
@@ -1175,10 +1197,19 @@ class RandomOrder_sampler(AdaNS_sampler):
             samples_to_keep = self.all_samples[self.good_samples][indices_to_keep]
             
         num_samples -= (num_parents + n_random_samples)
+        residual_samples = 0
         if num_samples ==0:
             randorder_samples = np.zeros((0, self.dimensions)).astype(np.int32)
         else:
+            if self.swap_method=='adjacent':
+                swap_func = self.swap_adjacent
+            elif self.swap_method=='adjacent_subset':
+                swap_func = self.swap_adjacent_subset
+            else:
+                raise NotImplementedError
+
             if num_samples >= int(np.sum(self.good_samples)+0.001):
+                residual_samples = num_samples - int(np.sum(self.good_samples)+0.001)
                 num_samples = int(np.sum(self.good_samples)+0.001)
                 assert num_samples > 0
                 randorder_samples = self.all_samples[self.good_samples][:num_samples]
@@ -1198,11 +1229,16 @@ class RandomOrder_sampler(AdaNS_sampler):
             if np.sum(randorder_scores)==0:
                 prob_swap = np.random.uniform(0., self.p_swap_max, size=num_samples)
             else:
-                prob_swap = (randorder_scores / np.max(randorder_scores)) * self.p_swap_max
+                prob_swap = (randorder_scores / np.max(randorder_scores)) * (self.p_swap_max - self.p_swap_min)
+                prob_swap += self.p_swap_min
             for idx in range(num_samples):
                 #----------------- swapping
-                randorder_samples[idx] = self.swap(randorder_samples[idx], p_swap=prob_swap[idx])
+                randorder_samples[idx] = swap_func(randorder_samples[idx], p_swap=prob_swap[idx])
 
+        if residual_samples > 0:
+            random_samples = np.concatenate((random_samples, self.sample_uniform(num_samples=residual_samples)), axis=0)
+            n_random_samples = random_samples.shape[0]
+        
         origins = ['R'] * len(randorder_samples)
         if n_random_samples > 0.:
             randorder_samples = np.concatenate((random_samples, randorder_samples), axis=0)
@@ -1215,5 +1251,7 @@ class RandomOrder_sampler(AdaNS_sampler):
             print('kept %d from before, sampled %d uniformly, %d with swapping'%(num_parents, n_random_samples, num_samples))
 
         assert len(origins)==randorder_samples.shape[0]
+
+        assert randorder_samples.shape[0] == num_samples_orig, f'took {randorder_samples.shape[0]} samples but should be {num_samples_orig}'
 
         return randorder_samples, origins
