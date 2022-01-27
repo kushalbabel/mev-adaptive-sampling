@@ -1,6 +1,7 @@
 import argparse
 import logging
 from uniswapv2 import UniswapV2
+from copy import deepcopy
 
 large_negative = -1e9
 
@@ -19,12 +20,16 @@ def generate_transaction(tx_type, params):
         format_string = '{} redeems {} fraction of liquidity from {} and {}'
     return format_string.format(*params)
 
-def get_mev(amm):
+def get_mev(amm_orig):
     mev = 0
+    amm = deepcopy(amm_orig)
     miner_balances = amm.config()['Miner']
-    amm_reserves = amm.config()[amm.exchange_name]
     default_token = 'eth'
     # first convert all into eth
+    amount = miner_balances[amm.lp_token]
+    amm.raw_redeem('Miner', amount, 'eth', 'usdc')
+        
+    miner_balances = amm.config()['Miner']
     for token in miner_balances:
         amount = miner_balances[token]
         if token == default_token:
@@ -39,15 +44,7 @@ def get_mev(amm):
                 amm.raw_swap_output('Miner', default_token, token, 0-amount)
                 #return large_negative
     
-    miner_balances = amm.config()['Miner']
-    for token in miner_balances:
-        amount = miner_balances[token]
-        if token == default_token:
-            mev += amount
-        elif token == amm.lp_token:
-            mev += 2*amm.config()[amm.exchange_name][default_token]*amount/amm.supply
-        else:
-            pass
+    mev = amm.config()['Miner'][default_token]
     return mev
 
 def simulate(lines):

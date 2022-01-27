@@ -1,4 +1,4 @@
-start_block=12400000
+start_block=12400000 #June #TODO : different time periods, diff volatility periods?
 end_block=12402000
 
 curr_block=$start_block
