@@ -1,0 +1,5 @@
+1,Reserves,218292735.245136,usdc,57691.989596691725,eth
+1,Miner,3783761,usdc,1000,eth
+3,User1,usdc,10,eth,0,usdc,0,0
+3,User2,eth,37837,usdc,0,eth,0,0
+4,Miner,100,eth,usdc
