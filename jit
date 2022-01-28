@@ -3,3 +3,5 @@
 3,User1,usdc,10,eth,0,usdc,0,0
 3,User2,eth,37837,usdc,0,eth,0,0
 4,Miner,100,eth,usdc
+3,Miner,eth,0,usdc,0,eth,0,0
+3,Miner,usdc,0,eth,0,usdc,0,0
