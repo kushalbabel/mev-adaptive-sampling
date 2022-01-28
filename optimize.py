@@ -109,7 +109,16 @@ class Reorder_evaluator(object):
 def main(args, transaction, grid_search=False):
     if args.name is None:
         if args.reorder:
-            args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents_{args.p_swap_min},{args.p_swap_max}p_swap'
+            if args.p_swap_min != 0.0:
+                args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents_{args.p_swap_min}-{args.p_swap_max}p_swap'
+            else:
+                args.name = f'{args.n_iter}iter_{args.num_samples}nsamples_{args.u_random_portion}random_{args.parents_portion}parents_{args.p_swap_max}p_swap'
+            if args.swap_method == 'adjacent':
+                pass
+            if args.swap_method == 'adjacent_subset':
+                args.name += '_adjsubset'
+            else:
+                raise NotImplementedError
         elif grid_search:
             args.name = 'grid_search'
         else:
@@ -118,7 +127,7 @@ def main(args, transaction, grid_search=False):
     testset = os.path.basename(os.path.dirname(transaction))
     print(f'----------{problem_name}----------')
 
-    args.save_path = os.path.join('artifacts_adjacent_subset', testset, problem_name, args.name)
+    args.save_path = os.path.join('artifacts2', testset, problem_name, args.name)
     print('=> Saving artifacts to %s' % args.save_path)
 
     os.makedirs(args.save_path, exist_ok=True)  
@@ -217,7 +226,7 @@ def main(args, transaction, grid_search=False):
         sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
                                     p_swap_min=args.p_swap_min, p_swap_max=args.p_swap_max, 
                                     u_random_portion=args.u_random_portion, parents_portion=args.parents_portion,
-                                    swap_method='adjacent_subset')
+                                    swap_method=args.swap_method)
 
         evaluator = Reorder_evaluator(transactions, domain, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                         args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
@@ -262,6 +271,7 @@ if __name__ == '__main__':
     parser.add_argument('--parents_portion', default=0.1, type=float, help='portion of good samples to keep for the next round (default:0.1)')
     parser.add_argument('--p_swap_min', default=0.0, type=float, help='minimum probability of per-element swap (default:0.0)')
     parser.add_argument('--p_swap_max', default=0.5, type=float, help='maximum probability of per-element swap (default:0.5)')
+    parser.add_argument('swap_method', default='adjacent', type=str, help='choose swapping method from [adjacent, adjacent_subset] (default:adjacent)')
 
     #------------ Arguments for adaptive sampling
     parser.add_argument('--name', default=None, help='name of the experiment (default: None)')
@@ -285,10 +295,10 @@ if __name__ == '__main__':
     args = parser.parse_args()  
     # np.random.seed(args.seed)
 
-    ntransactions = 40
+    ntransactions = 30
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(args.transactions, f) for f in os.listdir(args.transactions) if os.path.isfile(os.path.join(args.transactions, f))]
-        all_files = np.sort(all_files)[:ntransactions]
+        all_files = np.sort(all_files)[2*ntransactions:]
         print(f'found {len(all_files)} files for optimization')
         
         for transaction in all_files:

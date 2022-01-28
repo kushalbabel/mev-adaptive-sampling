@@ -12,7 +12,7 @@ def copy_files(file_patterns, orig_path='./artifacts_', path_to_move='./artifact
             if sf in file_patterns:
                 curr_path = os.path.join(orig_path, problem, sf)
                 dest_path = os.path.join(path_to_move, problem, sf)
-                print(f'moving {curr_path} to {dest_path}')
+                print(f'copying {curr_path} to {dest_path}')
                 shutil.copytree(curr_path, dest_path, dirs_exist_ok=True)
 
 def delete_files(file_pattern, path='./artifacts'):
@@ -23,6 +23,15 @@ def delete_files(file_pattern, path='./artifacts'):
                 curr_path = os.path.join(path, problem, sf)
                 print(f'removing {curr_path}')
                 shutil.rmtree(curr_path)
+
+def rename_files(file_pattern, new_name, path='./artifacts'):
+    for problem in os.listdir(path):
+        subfolders = os.listdir(os.path.join(path, problem))
+        for sf in subfolders:
+            if sf == file_pattern:
+                curr_path = os.path.join(path, problem, sf)
+                print(f'renaming {curr_path}')
+                os.rename(curr_path, os.path.join(path, problem, new_name))
                 
 def count_transactions(path_to_testset):
     def gather_result_paths(path):
@@ -82,10 +91,15 @@ def dump_csvs(path, testset, pattern):
 if __name__ == '__main__':
     # dump_csvs('./artifacts_earlystopping', testset='tests', pattern='50iter_50nsamples_0.2random_0.4local_0.4_cross')
     
-    # file_patterns = ['30iter_20nsamples_1.0random_0.0parents_0.5p_swap']
-    # copy_files(file_patterns, orig_path='./artifacts_/tests', path_to_move='./artifacts/tests')
+    file_patterns = ['50iter_50nsamples_0.2random_0.4local_0.4_cross',
+                     '50iter_50nsamples_1.0random_0.0local_0.0_cross']
+    copy_files(file_patterns, orig_path='./artifacts_/tests', path_to_move='./artifacts/tests')
+    
+    # rename_files(file_pattern='30iter_20nsamples_0.2random_0.0parents_1.0p_swap', 
+    #                 new_name='30iter_20nsamples_0.2random_0.0parents_0.1-1.0p_swap_adjsubset', 
+    #                 path='artifacts_adjacent_subset/tests')
 
-    count_transactions(path_to_testset='/home/kb742/mev-adaptive-sampling/tests/')
+    # count_transactions(path_to_testset='/home/kb742/mev-adaptive-sampling/tests/')
 
 
 

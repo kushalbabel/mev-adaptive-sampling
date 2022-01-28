@@ -20,6 +20,7 @@ if __name__ == '__main__':
     args = parser.parse_args()  
 
     path_to_save = 'plots'
+    os.makedirs(path_to_save, exist_ok=True)
     path_to_results = os.path.join(args.path, args.testset)
 
     patterns = [
@@ -29,6 +30,9 @@ if __name__ == '__main__':
                 '30iter_20nsamples_0.2random_0.0parents_0.5p_swap',
                 '30iter_20nsamples_0.2random_0.0parents_0.8p_swap',
                 '30iter_20nsamples_1.0random_0.0parents_0.5p_swap',
+                '30iter_20nsamples_0.2random_0.0parents_0.1-0.8p_swap',
+                '30iter_20nsamples_0.2random_0.0parents_0.1-1.0p_swap',
+                '30iter_20nsamples_0.2random_0.0parents_0.1-1.0p_swap_adjsubset',
                 # '30iter_20nsamples_0.2random_0.2parents_0.5p_swap',
                 # '50iter_50nsamples_0.2random_0.4local_0.4_cross',
                 # '50iter_50nsamples_1.0random_0.0local_0.0_cross',
@@ -47,17 +51,9 @@ if __name__ == '__main__':
         if '1.0random' in p:
             idx_random = i
     
-    p = '30iter_20nsamples_0.2random_0.0parents_0.8p_swap'
-    best_scores_all.append(gather_results('artifacts2/tests', pattern=p))
-    patterns.append(p+'_0.1p_min')
-    n_iter = int(re.search('([0-9]+)iter', p).group(1))
-    nsamples = int(re.search('_([0-9]+)nsamples', p).group(1))
-    x_axis.append([(iter+1)*nsamples for iter in range(n_iter)])
-    print(f'found {len(best_scores_all[-1].keys())} results with pattern {patterns[-1]}')
-
-    # p = '30iter_20nsamples_0.2random_0.0parents_1.0p_swap'
-    # best_scores_all.append(gather_results('artifacts_adjacent_subset/tests', pattern=p))
-    # patterns.append(p+'_0.1p_min_adjacent')
+    # p = '30iter_20nsamples_0.2random_0.0parents_0.1-0.8p_swap'
+    # best_scores_all.append(gather_results('artifacts2/tests', pattern=p))
+    # patterns.append(p+'_0.1p_min')
     # n_iter = int(re.search('([0-9]+)iter', p).group(1))
     # nsamples = int(re.search('_([0-9]+)nsamples', p).group(1))
     # x_axis.append([(iter+1)*nsamples for iter in range(n_iter)])
@@ -107,7 +103,8 @@ if __name__ == '__main__':
             max_score_nonrandom = np.max(np.concatenate([best_scores[i][k] for i in range(len(best_scores)) if i!=idx_random], axis=0))
             # if max_score != max_score_nonrandom:
             #     continue
-            count += 1
+            if max_score == max_score_nonrandom:
+                count += 1
             problem = os.path.join('/home/kb742/mev-adaptive-sampling', args.testset, k)
             transactions_f = open(problem, 'r')
             transactions = transactions_f.readlines()
