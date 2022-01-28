@@ -3,6 +3,7 @@ from collections import defaultdict
 from math import sqrt
 
 class UniswapV2:
+    # normal division instead of floor division cuz dealing w eth, not wei
     def __init__(self, balances={}, exchange_name='UniswapV2'):
         self.exchange_name = exchange_name
         self.token_balances = defaultdict(lambda : defaultdict(lambda : 0))
@@ -77,7 +78,16 @@ class UniswapV2:
         self.supply -= redeemed_lp_tokens
         self.token_balances[address][self.lp_token] -= redeemed_lp_tokens
 
-        
+    def raw_redeem(self, address, redeemed_lp_tokens, token0, token1):
+        amount0 = redeemed_lp_tokens*self.token_balances[self.exchange_name][token0]/self.supply
+        amount1 = redeemed_lp_tokens*self.token_balances[self.exchange_name][token1]/self.supply
+        self.token_balances[self.exchange_name][token0] -= amount0
+        self.token_balances[self.exchange_name][token1] -= amount1
+        self.token_balances[address][token0] += amount0
+        self.token_balances[address][token1] += amount1
+        self.supply -= redeemed_lp_tokens
+        self.token_balances[address][self.lp_token] -= redeemed_lp_tokens
+
     def swap(self, tx):
         vals = re.match(r'(.*) swaps for (.*) by providing (.*) (.*) and (.*) (.*) with change (.*) fee (.*)', tx)
         address = vals.group(1)
@@ -87,7 +97,7 @@ class UniswapV2:
         amount_in_token_out = float(vals.group(5))
         amount_out_token_in = float(vals.group(7))
 
-        amount_out_token_out = (((997 * amount_in_token_in - 1000 * amount_out_token_in) * self.token_balances[self.exchange_name][token_out]) // (1000 * (self.token_balances[self.exchange_name][token_in] - amount_out_token_in) + 997 * amount_in_token_in)) + ((amount_in_token_out * 997) // (1000))
+        amount_out_token_out = (((997 * amount_in_token_in - 1000 * amount_out_token_in) * self.token_balances[self.exchange_name][token_out]) / (1000 * (self.token_balances[self.exchange_name][token_in] - amount_out_token_in) + 997 * amount_in_token_in)) + ((amount_in_token_out * 997) / (1000))
         
         self.token_balances[self.exchange_name][token_in] += amount_in_token_in - amount_out_token_in
         self.token_balances[self.exchange_name][token_out] += amount_in_token_out - amount_out_token_out
@@ -95,7 +105,7 @@ class UniswapV2:
         self.token_balances[address][token_out] += amount_out_token_out - amount_in_token_out
 
     def raw_swap(self, address, token_in, token_out, amount_in_token_in, amount_in_token_out, amount_out_token_in):
-        amount_out_token_out = (((997 * amount_in_token_in - 1000 * amount_out_token_in) * self.token_balances[self.exchange_name][token_out]) // (1000 * (self.token_balances[self.exchange_name][token_in] - amount_out_token_in) + 997 * amount_in_token_in)) + ((amount_in_token_out * 997) // (1000))
+        amount_out_token_out = (((997 * amount_in_token_in - 1000 * amount_out_token_in) * self.token_balances[self.exchange_name][token_out]) / (1000 * (self.token_balances[self.exchange_name][token_in] - amount_out_token_in) + 997 * amount_in_token_in)) + ((amount_in_token_out * 997) / (1000))
         
         self.token_balances[self.exchange_name][token_in] += amount_in_token_in - amount_out_token_in
         self.token_balances[self.exchange_name][token_out] += amount_in_token_out - amount_out_token_out
@@ -103,8 +113,7 @@ class UniswapV2:
         self.token_balances[address][token_out] += amount_out_token_out - amount_in_token_out
 
     def raw_swap_output(self, address, token_in, token_out, amount_out_token_out):
-        amount_in_token_in = (1000* amount_out_token_out * self.token_balances[self.exchange_name][token_in]) // (1 + 997 * (self.token_balances[self.exchange_name][token_out] - amount_out_token_out))
-
+        amount_in_token_in = (1000* amount_out_token_out * self.token_balances[self.exchange_name][token_in]) / (1 + 997 * (self.token_balances[self.exchange_name][token_out] - amount_out_token_out))
         self.token_balances[self.exchange_name][token_in] += amount_in_token_in
         self.token_balances[self.exchange_name][token_out] -= amount_out_token_out
         self.token_balances[address][token_in] -= amount_in_token_in
