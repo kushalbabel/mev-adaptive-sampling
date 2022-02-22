@@ -151,9 +151,17 @@ class AdaNS_sampler(object):
 
             if self.max_score==0:
                 sorted_args = np.argsort(self.all_scores)[::-1]
-                indices = sorted_args[:self.minimum_num_good_samples]
+                # indices = sorted_args[:self.minimum_num_good_samples]
+                indices = []
+                count = 0
+                for idx in sorted_args:
+                    indices.append(idx)
+                    if self.all_scores[idx]!=0:
+                        count += 1
+                    if count == self.minimum_num_good_samples:
+                        break
                 self.good_samples[indices] = True
-                assert np.sum(self.good_samples)==self.minimum_num_good_samples, (np.sum(self.good_samples), self.minimum_num_good_samples)
+                assert np.sum(self.good_samples)==self.minimum_num_good_samples+np.sum(self.all_scores==0), (np.sum(self.good_samples), self.minimum_num_good_samples+np.sum(self.all_scores==0))
 
             else:
                 itr = 0
@@ -351,6 +359,7 @@ class AdaNS_sampler(object):
             runtime.update(time.time()-t0)
             if verbose:
                 print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
+                print('=> average score over %d good samples: %.3f' % (np.sum(self.good_samples), np.mean(self.all_scores[self.good_samples])))
                 print('=> average time per iteration:', runtime.summary())
 
         print('=> average time per iteration:', runtime.summary())
@@ -359,7 +368,9 @@ class AdaNS_sampler(object):
                 'best_scores': np.asarray(best_scores),
                 'alpha_vals': alpha_vals,
                 'all_samples': self.all_samples,
-                'all_scores': self.all_scores,}
+                'all_scores': self.all_scores,
+                'good_samples': self.good_samples,
+                }
         if len(self.all_subsamples)>0:
             info['all_subsamples'] = self.all_subsamples
 
@@ -557,7 +568,8 @@ class Gaussian_sampler(AdaNS_sampler):
         data = self.all_samples[self.good_samples]
         assert len(np.unique(data, axis=0))==data.shape[0], (len(np.unique(data, axis=0)), data.shape[0])
 
-        scores = self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])
+        # scores = self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])
+        scores = self.all_scores[self.good_samples] - np.min(self.all_scores)
         avg_good_scores = np.mean(scores)
         scores = scores + avg_good_scores
         assert np.sum(scores>=0)==len(scores)
@@ -567,14 +579,20 @@ class Gaussian_sampler(AdaNS_sampler):
         
         max_all_dims = np.max(data, axis=0)
         min_all_dims = np.min(data, axis=0)
-        
+
+        for i in range(len(max_all_dims)):
+            if max_all_dims[i] == min_all_dims[i]:
+                max_all_dims[i] = np.max(self.all_samples, axis=0)[i]
+                min_all_dims[i] = np.min(self.all_samples, axis=0)[i]
+
         gaussian_means = data
         gaussian_covs = np.asarray([((max_all_dims-min_all_dims)/4.0)**2 for _ in range(len(data))])
         gaussian_mix = GaussianMixture(n_components=data.shape[0], covariance_type='diag',
-                                      weights_init=np.ones(data.shape[0])/data.shape[0], means_init=data)
+                                      weights_init=np.ones(data.shape[0])/data.shape[0], means_init=data)#, reg_covar=1e-5)
         gaussian_mix.fit(X=data)
         gaussian_mix.means_ = gaussian_means
         gaussian_mix.covariances_ = gaussian_covs
+
         if np.sum(scores)==0:
             print('====== sum of scores was zero')
             gaussian_mix.weights_ = [1./len(scores)] * len(scores)
@@ -1216,7 +1234,8 @@ class RandomOrder_sampler(AdaNS_sampler):
                 randorder_scores = self.all_scores[self.good_samples][:num_samples]
             else:
                 inds = np.where(self.good_samples)[0]
-                probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples]))
+                # probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples]))
+                probs = (self.all_scores[self.good_samples] - np.min(self.all_scores))
                 if np.sum(probs)==0:
                     probs = np.ones_like(probs)
                 choices = np.random.choice(inds, size=num_samples, replace=False, p=probs/np.sum(probs))
