@@ -173,6 +173,16 @@ def set_miner(address):
     response = json.loads(r.content)
     return response
 
+def mine_block():
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'evm_mine'
+    data['params'] = []
+    data['id'] = 1
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    return response
+
 
 def simulate(lines):
     bootstrap_line = lines[0].strip()
@@ -180,7 +190,7 @@ def simulate(lines):
     #setup
     fork(bootstrap_block)
     set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
-    set_miner(MINER_ADDRESS) #TODO: fix 1 block being mined for every tx, screws up block rewards mev
+    set_miner(MINER_ADDRESS)
 
     #simulate transactions
     for line in lines[1:]:
@@ -201,6 +211,7 @@ def simulate(lines):
             # inserted transaction
             serialized_tx = parse_and_sign_basic_tx(elements[1:])
             print(apply_transaction(serialized_tx))
+    print(mine_block())
     return get_mev()
 
 if __name__ == '__main__':
