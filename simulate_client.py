@@ -127,7 +127,6 @@ def parse_and_sign_basic_tx(elements):
         'nonce': miner_nonce,
         'chainId': 1,
     }
-    miner_nonce += 1 #TODO: increment at the right place, taking care of tx failures
     tx = dynamic_tx
     print(tx)
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
@@ -155,7 +154,6 @@ def parse_and_sign_contract_tx(elements):
             'nonce': miner_nonce,
             'chainId': 1,
         }
-        miner_nonce += 1 #TODO: increment at the right place, taking care of tx failures
         tx = dynamic_tx
         print(tx)
         signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
@@ -185,6 +183,7 @@ def mine_block():
 
 
 def simulate(lines):
+    global miner_nonce
     bootstrap_line = lines[0].strip()
     bootstrap_block = int(bootstrap_line) - 1
     #setup
@@ -207,10 +206,12 @@ def simulate(lines):
             # inserted transaction
             serialized_tx = parse_and_sign_contract_tx(elements[1:])
             print(apply_transaction(serialized_tx))
+            miner_nonce += 1
         elif tx_type == '2':
             # inserted transaction
             serialized_tx = parse_and_sign_basic_tx(elements[1:])
             print(apply_transaction(serialized_tx))
+            miner_nonce += 1
     print(mine_block())
     return get_mev()
 
