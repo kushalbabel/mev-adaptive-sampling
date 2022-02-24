@@ -4,12 +4,17 @@ import argparse
 import logging
 from uniswapv2 import UniswapV2
 from copy import deepcopy
+from contracts import utils
+from contracts.uniswap import uniswap_router_contract
+from web3 import Web3
 
 LARGE_NEGATIVE = -1e9
 FORK_URL = 'http://localhost:8546'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
+MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
 MINER_CAPITAL = 1000*1e18
+w3 = Web3(Web3.HTTPProvider(FORK_URL))
 
 def query_block(block_number):
     data = {}
@@ -78,20 +83,6 @@ def fork(bno):
     response = json.loads(r.content)
     return response
 
-def info(amm):
-    print(dict(amm.config()))
-    print('Supply',amm.supply)
-
-def generate_transaction(tx_type, params):
-    if tx_type == '1':
-        format_string = '{} adds {} {} and {} {} of liquidity'
-    elif tx_type == '2':
-        format_string = '{} removes {} {} and {} {} of liquidity'
-    elif tx_type == '3':
-        format_string = '{} swaps for {} by providing {} {} and {} {} with change {} fee {}'
-    elif tx_type == '4':
-        format_string = '{} redeems {} fraction of liquidity from {} and {}'
-    return format_string.format(*params)
 
 # in eth
 def get_mev():
@@ -119,11 +110,40 @@ def apply_transaction(serialized_tx):
     response = json.loads(r.content)
     return response
 
-def parse_basic_transaction(elements):
+def parse_and_sign_basic_tx(elements):
     raise NotImplementedError
 
-def parse_contract_transaction(elements):
-    raise NotImplementedError
+def parse_and_sign_contract_tx(elements):
+    to_address = elements[1]
+    value = int(float(elements[2])*1e18) #given in eth, convert to wei
+    func_name = elements[3]
+    params = elements[4:]
+    if to_address == 'UniswapV2Router02':
+        contract = uniswap_router_contract
+        calldata = utils.encode_function_call1(contract, func_name, params)
+        tx = {
+            'to': contract.address,
+            'value': value,
+            'data': calldata,
+            'gas': 15000000,
+            'gasPrice': 86778040978,
+            'nonce': 0
+        }
+        print(tx)
+        signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
+        print(signed_tx.rawTransaction.hex())
+        return signed_tx.rawTransaction.hex()
+
+
+def impersonate(address):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'hardhat_impersonateAccount'
+    data['params'] = [address]
+    data['id'] = 1
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    return response
 
 
 def simulate(lines):
@@ -132,8 +152,13 @@ def simulate(lines):
     #setup
     fork(bootstrap_block)
     set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
+    # impersonate(MINER_ADDRESS) #not needed, hardcoded miner address
+
     #simulate transactions
     for line in lines[1:]:
+        if line.startswith('#'):
+            #TODO remove for performance in prod
+            continue
         elements = line.strip().split(',')
         tx_type = elements[0]
         if tx_type == '0':
@@ -142,11 +167,11 @@ def simulate(lines):
             print(apply_transaction(serialized_tx))
         elif tx_type == '1':
             # inserted transaction
-            serialized_tx = parse_contract_transaction(elements[1:])
+            serialized_tx = parse_and_sign_contract_tx(elements[1:])
             print(apply_transaction(serialized_tx))
         elif tx_type == '2':
             # inserted transaction
-            serialized_tx = parse_basic_transaction(elements[1:])
+            serialized_tx = parse_and_sign_basic_tx(elements[1:])
             print(apply_transaction(serialized_tx))
     return get_mev()
 
