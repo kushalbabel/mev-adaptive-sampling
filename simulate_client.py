@@ -191,7 +191,7 @@ def simulate(lines):
         tx_type = elements[0]
         if tx_type == '0':
             # existing transaction
-            serialized_tx = get_transaction(elements[1])['result']
+            serialized_tx = get_transaction(elements[2])['result']
             print(apply_transaction(serialized_tx))
         elif tx_type == '1':
             # inserted transaction
