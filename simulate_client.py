@@ -14,6 +14,8 @@ ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
 MINER_CAPITAL = 1000*1e18
+
+miner_nonce = 0
 w3 = Web3(Web3.HTTPProvider(FORK_URL))
 
 def query_block(block_number):
@@ -111,9 +113,29 @@ def apply_transaction(serialized_tx):
     return response
 
 def parse_and_sign_basic_tx(elements):
-    raise NotImplementedError
+    global miner_nonce
+    to_address = elements[1]
+    value = int(float(elements[2])*1e18) #given in eth, convert to wei
+    #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
+    dynamic_tx = {
+        'to': to_address,
+        'value': value,
+        'gas': 15000000,
+        # 'gasPrice': 76778040978,
+        'maxFeePerGas': 146778040978,
+        'maxPriorityFeePerGas':1000,
+        'nonce': miner_nonce,
+        'chainId': 1,
+    }
+    miner_nonce += 1 #TODO: increment at the right place, taking care of tx failures
+    tx = dynamic_tx
+    print(tx)
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
+    print(signed_tx.rawTransaction.hex())
+    return signed_tx.rawTransaction.hex()
 
 def parse_and_sign_contract_tx(elements):
+    global miner_nonce
     to_address = elements[1]
     value = int(float(elements[2])*1e18) #given in eth, convert to wei
     func_name = elements[3]
@@ -121,24 +143,30 @@ def parse_and_sign_contract_tx(elements):
     if to_address == 'UniswapV2Router02':
         contract = uniswap_router_contract
         calldata = utils.encode_function_call1(contract, func_name, params)
-        tx = {
+        #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
+        dynamic_tx = {
             'to': contract.address,
             'value': value,
             'data': calldata,
             'gas': 15000000,
-            'gasPrice': 86778040978,
-            'nonce': 0
+            # 'gasPrice': 76778040978,
+            'maxFeePerGas': 146778040978,
+            'maxPriorityFeePerGas':1000,
+            'nonce': miner_nonce,
+            'chainId': 1,
         }
+        miner_nonce += 1 #TODO: increment at the right place, taking care of tx failures
+        tx = dynamic_tx
         print(tx)
         signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
         print(signed_tx.rawTransaction.hex())
         return signed_tx.rawTransaction.hex()
 
 
-def impersonate(address):
+def set_miner(address):
     data = {}
     data['jsonrpc'] = '2.0'
-    data['method'] = 'hardhat_impersonateAccount'
+    data['method'] = 'hardhat_setCoinbase'
     data['params'] = [address]
     data['id'] = 1
     r = requests.post(FORK_URL, json=data)
@@ -152,7 +180,7 @@ def simulate(lines):
     #setup
     fork(bootstrap_block)
     set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
-    # impersonate(MINER_ADDRESS) #not needed, hardcoded miner address
+    set_miner(MINER_ADDRESS) #TODO: fix 1 block being mined for every tx, screws up block rewards mev
 
     #simulate transactions
     for line in lines[1:]:
