@@ -194,7 +194,6 @@ def simulate(lines):
     #simulate transactions
     for line in lines[1:]:
         if line.startswith('#'):
-            #TODO remove for performance in prod
             continue
         elements = line.strip().split(',')
         tx_type = elements[0]
@@ -212,7 +211,6 @@ def simulate(lines):
             serialized_tx = parse_and_sign_basic_tx(elements[1:])
             print(apply_transaction(serialized_tx))
             miner_nonce += 1
-    print(mine_block())
     return get_mev()
 
 if __name__ == '__main__':
