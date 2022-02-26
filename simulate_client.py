@@ -6,6 +6,7 @@ from uniswapv2 import UniswapV2
 from copy import deepcopy
 from contracts import utils
 from contracts.uniswap import uniswap_router_contract
+from contracts.tokens import usdc_contract
 from web3 import Web3
 
 LARGE_NEGATIVE = -1e9
@@ -130,7 +131,7 @@ def parse_and_sign_basic_tx(elements):
     tx = dynamic_tx
     print(tx)
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
-    print(signed_tx.rawTransaction.hex())
+    # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
 
 def parse_and_sign_contract_tx(elements):
@@ -141,24 +142,28 @@ def parse_and_sign_contract_tx(elements):
     params = elements[4:]
     if to_address == 'UniswapV2Router02':
         contract = uniswap_router_contract
-        calldata = utils.encode_function_call1(contract, func_name, params)
-        #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
-        dynamic_tx = {
-            'to': contract.address,
-            'value': value,
-            'data': calldata,
-            'gas': 15000000,
-            # 'gasPrice': 76778040978,
-            'maxFeePerGas': 146778040978,
-            'maxPriorityFeePerGas':1000,
-            'nonce': miner_nonce,
-            'chainId': 1,
-        }
-        tx = dynamic_tx
-        print(tx)
-        signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
-        print(signed_tx.rawTransaction.hex())
-        return signed_tx.rawTransaction.hex()
+    elif to_address == 'usdc':
+        contract = usdc_contract
+    else:
+        raise NotImplemented
+    calldata = utils.encode_function_call1(contract, func_name, params)
+    #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
+    dynamic_tx = {
+        'to': contract.address,
+        'value': value,
+        'data': calldata,
+        'gas': 15000000,
+        # 'gasPrice': 76778040978,
+        'maxFeePerGas': 146778040978,
+        'maxPriorityFeePerGas':1000,
+        'nonce': miner_nonce,
+        'chainId': 1,
+    }
+    tx = dynamic_tx
+    print(tx)
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
+    # print(signed_tx.rawTransaction.hex())
+    return signed_tx.rawTransaction.hex()
 
 
 def set_miner(address):
@@ -181,36 +186,44 @@ def mine_block():
     response = json.loads(r.content)
     return response
 
+def simulate_tx(line):
+    global miner_nonce
+    line = line.replace('miner', MINER_ADDRESS)
+    elements = line.strip().split(',')
+    tx_type = elements[0]
+    if tx_type == '0':
+        # existing transaction
+        serialized_tx = get_transaction(elements[2])['result']
+        print(apply_transaction(serialized_tx))
+    elif tx_type == '1':
+        # inserted transaction
+        serialized_tx = parse_and_sign_contract_tx(elements[1:])
+        print(apply_transaction(serialized_tx))
+        miner_nonce += 1
+    elif tx_type == '2':
+        # inserted transaction
+        serialized_tx = parse_and_sign_basic_tx(elements[1:])
+        print(apply_transaction(serialized_tx))
+        miner_nonce += 1
 
 def simulate(lines):
-    global miner_nonce
     bootstrap_line = lines[0].strip()
-    bootstrap_block = int(bootstrap_line) - 1
+    bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     #setup
     fork(bootstrap_block)
     set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
     set_miner(MINER_ADDRESS)
 
+    approved_tokens = bootstrap_line.split(',')[1:]
+    for token in approved_tokens:
+        simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)) #1e27
+
     #simulate transactions
     for line in lines[1:]:
         if line.startswith('#'):
             continue
-        elements = line.strip().split(',')
-        tx_type = elements[0]
-        if tx_type == '0':
-            # existing transaction
-            serialized_tx = get_transaction(elements[2])['result']
-            print(apply_transaction(serialized_tx))
-        elif tx_type == '1':
-            # inserted transaction
-            serialized_tx = parse_and_sign_contract_tx(elements[1:])
-            print(apply_transaction(serialized_tx))
-            miner_nonce += 1
-        elif tx_type == '2':
-            # inserted transaction
-            serialized_tx = parse_and_sign_basic_tx(elements[1:])
-            print(apply_transaction(serialized_tx))
-            miner_nonce += 1
+        simulate_tx(line)
+    mine_block()
     return get_mev()
 
 if __name__ == '__main__':

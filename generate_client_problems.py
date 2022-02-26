@@ -76,12 +76,14 @@ for line in lines:
         block_to_tx[block_num].add(transaction_hash)
 
 
-# swap_template1 = '3,Miner,usdc,alpha1,eth,0,usdc,0,0'
-# swap_template2 = '3,Miner,eth,alpha2,usdc,0,eth,0,0'
+swap_template1 = '1,miner,UniswapV2Router02,{},swapExactETHForTokens,\
+0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48],miner,1800000000'.format('alpha1')
+swap_template2 = '1,miner,UniswapV2Router02,0,swapExactTokensForETH,\
+{},0,[0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2')
 # addition_template = '1,Miner,alpha3,eth,alpha4,usdc'
 # removal_template = '4,Miner,alpha5,eth,usdc'
 
-# insertions = [swap_template1, swap_template2, addition_template, removal_template]
+insertions = [swap_template1, swap_template2]
 
 dir = args.output_dir
 
@@ -103,9 +105,12 @@ for block in block_to_tx:
         if tx['hash'] in necessary_transactions:
             interacting_addresses.add(tx['from'])
             interacting_addresses.add(tx['to'])
-    f1.write('{}\n'.format(block))
-    f2.write('{}\n'.format(block))
+    f1.write('{},usdc\n'.format(block))
+    f2.write('{},usdc\n'.format(block))
     for tx in all_transactions:
         f1.write(to_format(tx))
         if tx['from'] in interacting_addresses or tx['to'] in interacting_addresses:
             f2.write(to_format(tx))
+    for tx in insertions:
+        f1.write('{}\n'.format(tx))
+        f2.write('{}\n'.format(tx))
