@@ -9,7 +9,7 @@ def encode_parameters(contract, fn_name, params):
     for i in range(len(params)):
         arg_type = fn.abi['inputs'][i]['type']
         if 'int' in arg_type:
-            param = int(params[i]) #only handles int with base 10, handle hex strings in future
+            param = int(float(params[i])) #only handles int with base 10, handle hex strings in future
         elif '[]' in arg_type: #make more robust
             param = (params[i][1:-1]).split("-")
         else:
