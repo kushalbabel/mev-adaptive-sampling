@@ -32,7 +32,7 @@ def typify(params, fn):
     for i in range(len(params)):
         arg_type = fn.abi['inputs'][i]['type']
         if 'int' in arg_type:
-            param = int(params[i]) #only handles int with base 10, handle hex strings in future
+            param = int(float(params[i])) #only handles int with base 10, handle hex strings in future
             typed_params.append(param)
         elif '[]' in arg_type: #make more robust
             param = (params[i][1:-1]).split("-")
