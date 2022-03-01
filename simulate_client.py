@@ -2,10 +2,9 @@ import requests
 import json
 import argparse
 import logging
-from uniswapv2 import UniswapV2
 from copy import deepcopy
 from contracts import utils
-from contracts.uniswap import uniswap_router_contract
+from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract
 from contracts.tokens import usdc_contract
 from web3 import Web3
 
@@ -142,6 +141,8 @@ def parse_and_sign_contract_tx(elements):
     params = elements[4:]
     if to_address == 'UniswapV2Router02':
         contract = uniswap_router_contract
+    elif to_address == 'SushiswapRouter':
+        contract = sushiswap_router_contract
     elif to_address == 'usdc':
         contract = usdc_contract
     else:
@@ -216,8 +217,9 @@ def simulate(lines):
 
     approved_tokens = bootstrap_line.split(',')[1:]
     for token in approved_tokens:
-        simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)) #1e27
-
+        # temp disable uniswap approval cuz not needed, make more elegant
+        # simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)) #1e27
+        simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)) #1e27
     #simulate transactions
     for line in lines[1:]:
         if line.startswith('#'):

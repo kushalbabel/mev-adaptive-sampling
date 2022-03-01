@@ -76,10 +76,16 @@ for line in lines:
         block_to_tx[block_num].add(transaction_hash)
 
 
-swap_template1 = '1,miner,UniswapV2Router02,{},swapExactETHForTokens,\
+# swap_template1 = '1,miner,UniswapV2Router02,{},swapExactETHForTokens,\
+# 0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48],miner,1800000000'.format('alpha1')
+# swap_template2 = '1,miner,UniswapV2Router02,0,swapExactTokensForETH,\
+# {},0,[0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2')
+
+swap_template1 = '1,miner,SushiswapRouter,{},swapExactETHForTokens,\
 0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48],miner,1800000000'.format('alpha1')
-swap_template2 = '1,miner,UniswapV2Router02,0,swapExactTokensForETH,\
+swap_template2 = '1,miner,SushiswapRouter,0,swapExactTokensForETH,\
 {},0,[0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2')
+
 # addition_template = '1,Miner,alpha3,eth,alpha4,usdc'
 # removal_template = '4,Miner,alpha5,eth,usdc'
 
