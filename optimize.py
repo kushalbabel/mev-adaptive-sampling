@@ -1,4 +1,5 @@
 import os
+import shutil
 import argparse
 import logging
 import pickle
@@ -8,7 +9,8 @@ import numpy as np
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 
-from simulate import simulate
+# from simulate import simulate
+from simulate_client import simulate
 from sampling_utils import Gaussian_sampler, RandomOrder_sampler
 
 def get_params(transactions):
@@ -58,6 +60,24 @@ def reorder(transactions, order):
     order = order.astype(np.int32)
     reordered_transactions = [transactions[0]] + [transactions[i+1] for i in order]
     return reordered_transactions
+
+
+def get_groundtruth_order(transaction_lines):
+    user_transactions = {}
+    
+    for idx, line in enumerate(transaction_lines):
+        if line.startswith('#'):
+            #TODO remove for performance in prod
+            continue
+        elements = line.strip().split(',')
+        tx_type = elements[0]
+        if tx_type == '0':
+            user_id = elements[1]
+            if user_id in user_transactions:
+                user_transactions[user_id].append(idx)
+            else:
+                user_transactions[user_id] = [idx]
+    return user_transactions
 
 
 class Reorder_evaluator(object):
@@ -127,12 +147,12 @@ def main(args, transaction, grid_search=False):
     testset = os.path.basename(os.path.dirname(transaction))
     print(f'----------{problem_name}----------')
 
-    args.save_path = os.path.join('artifacts', testset, problem_name, args.name)
-    print('=> Saving artifacts to %s' % args.save_path)
-
+    args.save_path = os.path.join('artifacts2', testset, problem_name, args.name)
     os.makedirs(args.save_path, exist_ok=True)  
-    logging.basicConfig(level=args.loglevel, format='%(message)s')
+    print('=> Saving artifacts to %s' % args.save_path)
+    shutil.copyfile(transaction, os.path.join(args.save_path, 'transactions'))
 
+    logging.basicConfig(level=args.loglevel, format='%(message)s')
     logger = logging.getLogger(__name__)
 
     #---------------- Read input files and initialize the sampler
@@ -223,10 +243,11 @@ def main(args, transaction, grid_search=False):
                 print('maximum MEV:', scores[idx])
 
     else:
+        gt_order = get_groundtruth_order(transactions[1:])
         sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
                                     p_swap_min=args.p_swap_min, p_swap_max=args.p_swap_max, 
                                     u_random_portion=args.u_random_portion, parents_portion=args.parents_portion,
-                                    swap_method=args.swap_method)
+                                    swap_method=args.swap_method, groundtruth_order=gt_order)
 
         evaluator = Reorder_evaluator(transactions, domain, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                         args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
@@ -296,12 +317,14 @@ if __name__ == '__main__':
     # np.random.seed(args.seed)
 
     ntransactions = 30
+    file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
-        all_files = [os.path.join(args.transactions, f) for f in os.listdir(args.transactions) if os.path.isfile(os.path.join(args.transactions, f))]
+        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames if file_pattern in f]
         all_files = np.sort(all_files)#[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
         
         for transaction in all_files:
+            # main(args, transaction, grid_search=args.grid)
             try:
                 main(args, transaction, grid_search=args.grid)
 
