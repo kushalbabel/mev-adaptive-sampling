@@ -128,7 +128,7 @@ def parse_and_sign_basic_tx(elements):
         'chainId': 1,
     }
     tx = dynamic_tx
-    print(tx)
+    # print(tx)
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
@@ -161,7 +161,7 @@ def parse_and_sign_contract_tx(elements):
         'chainId': 1,
     }
     tx = dynamic_tx
-    print(tx)
+    # print(tx)
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
@@ -195,19 +195,24 @@ def simulate_tx(line):
     if tx_type == '0':
         # existing transaction
         serialized_tx = get_transaction(elements[2])['result']
-        print(apply_transaction(serialized_tx))
+        out = apply_transaction(serialized_tx)
+        # print(out)
     elif tx_type == '1':
         # inserted transaction
         serialized_tx = parse_and_sign_contract_tx(elements[1:])
-        print(apply_transaction(serialized_tx))
+        out = apply_transaction(serialized_tx)
+        # print(out)
         miner_nonce += 1
     elif tx_type == '2':
         # inserted transaction
         serialized_tx = parse_and_sign_basic_tx(elements[1:])
-        print(apply_transaction(serialized_tx))
+        out = apply_transaction(serialized_tx)
+        # print(out)
         miner_nonce += 1
 
 def simulate(lines):
+    global miner_nonce
+    miner_nonce = 0
     bootstrap_line = lines[0].strip()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     #setup
@@ -226,6 +231,7 @@ def simulate(lines):
             continue
         simulate_tx(line)
     mine_block()
+    # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
     return get_mev()
 
 if __name__ == '__main__':
@@ -252,4 +258,5 @@ if __name__ == '__main__':
 
     data_f = open(args.file, 'r')
     mev = simulate(data_f.readlines())
+    mev = simulate(temp_arr)
     print(mev)
