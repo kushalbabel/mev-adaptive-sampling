@@ -258,5 +258,4 @@ if __name__ == '__main__':
 
     data_f = open(args.file, 'r')
     mev = simulate(data_f.readlines())
-    mev = simulate(temp_arr)
     print(mev)
