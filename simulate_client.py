@@ -7,15 +7,19 @@ from contracts import utils
 from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract
 from contracts.tokens import usdc_contract
 from web3 import Web3
+from collections import defaultdict
 
 LARGE_NEGATIVE = -1e9
 FORK_URL = 'http://localhost:8546'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
+USER_ADDRESS = '0x42bD55c6502E586d66020Ece3fdA53Cb73D73b6D'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
+USER_KEY = 'd8d14136a29ac2d003983781f28b120fd144507f600876ad6479b92d747146ec'
+KEYS = {MINER_ADDRESS: MINER_KEY, USER_ADDRESS: USER_KEY}
 MINER_CAPITAL = 1000*1e18
 
-miner_nonce = 0
+nonces = defaultdict(lambda: 0)
 w3 = Web3(Web3.HTTPProvider(FORK_URL))
 
 def query_block(block_number):
@@ -112,8 +116,8 @@ def apply_transaction(serialized_tx):
     response = json.loads(r.content)
     return response
 
-def parse_and_sign_basic_tx(elements):
-    global miner_nonce
+def parse_and_sign_basic_tx(elements, sender):
+    global nonces
     to_address = elements[1]
     value = int(float(elements[2])*1e18) #given in eth, convert to wei
     #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
@@ -124,17 +128,17 @@ def parse_and_sign_basic_tx(elements):
         # 'gasPrice': 76778040978,
         'maxFeePerGas': 146778040978,
         'maxPriorityFeePerGas':1000,
-        'nonce': miner_nonce,
+        'nonce': nonces[sender],
         'chainId': 1,
     }
     tx = dynamic_tx
     # print(tx)
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=KEYS[sender])
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
 
-def parse_and_sign_contract_tx(elements):
-    global miner_nonce
+def parse_and_sign_contract_tx(elements, sender):
+    global nonces
     to_address = elements[1]
     value = int(float(elements[2])*1e18) #given in eth, convert to wei
     func_name = elements[3]
@@ -157,12 +161,12 @@ def parse_and_sign_contract_tx(elements):
         # 'gasPrice': 76778040978,
         'maxFeePerGas': 146778040978,
         'maxPriorityFeePerGas':1000,
-        'nonce': miner_nonce,
+        'nonce': nonces[sender],
         'chainId': 1,
     }
     tx = dynamic_tx
     # print(tx)
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=MINER_KEY)
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=KEYS[sender])
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
 
@@ -188,10 +192,12 @@ def mine_block():
     return response
 
 def simulate_tx(line):
-    global miner_nonce
+    global nonces
     line = line.replace('miner', MINER_ADDRESS)
+    line = line.replace('user', USER_ADDRESS)
     elements = line.strip().split(',')
     tx_type = elements[0]
+    sender = elements[1]
     if tx_type == '0':
         # existing transaction
         serialized_tx = get_transaction(elements[2])['result']
@@ -199,25 +205,26 @@ def simulate_tx(line):
         # print(out)
     elif tx_type == '1':
         # inserted transaction
-        serialized_tx = parse_and_sign_contract_tx(elements[1:])
+        serialized_tx = parse_and_sign_contract_tx(elements[1:], sender)
         out = apply_transaction(serialized_tx)
         # print(out)
-        miner_nonce += 1
+        nonces[sender] += 1
     elif tx_type == '2':
         # inserted transaction
         serialized_tx = parse_and_sign_basic_tx(elements[1:])
         out = apply_transaction(serialized_tx)
         # print(out)
-        miner_nonce += 1
+        nonces[sender] += 1
 
 def simulate(lines):
-    global miner_nonce
-    miner_nonce = 0
+    global nonces
+    nonces = defaultdict(lambda : 0)
     bootstrap_line = lines[0].strip()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     #setup
     fork(bootstrap_block)
     set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
+    set_balance(USER_ADDRESS, int(MINER_CAPITAL))
     set_miner(MINER_ADDRESS)
 
     approved_tokens = bootstrap_line.split(',')[1:]
