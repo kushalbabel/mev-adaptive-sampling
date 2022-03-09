@@ -317,7 +317,7 @@ if __name__ == '__main__':
     # np.random.seed(args.seed)
 
     ntransactions = 30
-    file_pattern = '_reduced'
+    file_pattern = ''#'_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames if file_pattern in f]
         all_files = np.sort(all_files)#[:ntransactions]

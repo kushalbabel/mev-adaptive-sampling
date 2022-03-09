@@ -88,12 +88,13 @@ def dump_csvs(path, testset, pattern):
         writer = csv.writer(f)
         writer.writerows(rows)
 
+
 if __name__ == '__main__':
     # dump_csvs('./artifacts_earlystopping', testset='tests', pattern='50iter_50nsamples_0.2random_0.4local_0.4_cross')
     
-    file_patterns = ['50iter_50nsamples_0.2random_0.4local_0.4_cross',
-                     '50iter_50nsamples_1.0random_0.0local_0.0_cross']
-    copy_files(file_patterns, orig_path='./artifacts_/tests', path_to_move='./artifacts/tests')
+    # file_patterns = ['50iter_50nsamples_0.2random_0.4local_0.4_cross',
+    #                  '50iter_50nsamples_1.0random_0.0local_0.0_cross']
+    # copy_files(file_patterns, orig_path='./artifacts_/tests', path_to_move='./artifacts/tests')
     
     # rename_files(file_pattern='30iter_20nsamples_0.2random_0.0parents_1.0p_swap', 
     #                 new_name='30iter_20nsamples_0.2random_0.0parents_0.1-1.0p_swap_adjsubset', 
@@ -101,5 +102,16 @@ if __name__ == '__main__':
 
     # count_transactions(path_to_testset='/home/kb742/mev-adaptive-sampling/tests/')
 
-
-
+    ##### code snippet for restructuring the clienttest files to match the sampling code
+    PATH = '/home/gid-javaheripim/clienttests_sushi_'
+    new_PATH = '/home/gid-javaheripim/clienttests_sushi'
+    os.makedirs(new_PATH, exist_ok=True)
+    all_files = [os.path.join(dp, f) for dp, _, filenames in os.walk(PATH) for f in filenames]
+    for f in all_files:
+        problem_type = os.path.basename(f)
+        problem_number = os.path.basename(os.path.dirname(f))
+        new_name = f'problem_{problem_number}' + ('_reduced' if 'reduced' in problem_type else '')
+        
+        new_f = os.path.join(new_PATH, new_name)
+        shutil.copyfile(f, new_f)
+        print(f'moving {f} to {new_f}')

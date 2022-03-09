@@ -151,17 +151,9 @@ class AdaNS_sampler(object):
 
             if self.max_score==0:
                 sorted_args = np.argsort(self.all_scores)[::-1]
-                # indices = sorted_args[:self.minimum_num_good_samples]
-                indices = []
-                count = 0
-                for idx in sorted_args:
-                    indices.append(idx)
-                    if self.all_scores[idx]!=0:
-                        count += 1
-                    if count == self.minimum_num_good_samples:
-                        break
+                indices = sorted_args[:self.minimum_num_good_samples]
                 self.good_samples[indices] = True
-                assert np.sum(self.good_samples)==self.minimum_num_good_samples+np.sum(self.all_scores==0), (np.sum(self.good_samples), self.minimum_num_good_samples+np.sum(self.all_scores==0))
+                assert np.sum(self.good_samples)==self.minimum_num_good_samples, (np.sum(self.good_samples), self.minimum_num_good_samples)
 
             else:
                 itr = 0
@@ -304,6 +296,7 @@ class AdaNS_sampler(object):
             subsamples = []
             n_batches = len(samples)//n_parallel if len(samples)%n_parallel==0 else (len(samples)//n_parallel)+1
             # with tqdm(total=n_batches) as pbar:
+
             for i in range(n_batches):
                 if n_parallel > 1:
                     batch_samples = samples[i*n_parallel:(i+1)*n_parallel]
@@ -359,8 +352,10 @@ class AdaNS_sampler(object):
             runtime.update(time.time()-t0)
             if verbose:
                 print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
-                print('=> average score over %d good samples: %.3f' % (np.sum(self.good_samples), np.mean(self.all_scores[self.good_samples])))
-                print('=> average time per iteration:', runtime.summary())
+                print('=> average score on %d good samples: %.3f' %(np.sum(self.good_samples), np.mean(self.all_scores[self.good_samples])))
+                # print(self.all_samples[self.good_samples][:10])
+                print('best sample:', self.all_samples[id_best])
+                print('=> average time per iteration: %.3f' % runtime.summary())
 
         print('=> average time per iteration:', runtime.summary())
 
@@ -369,8 +364,8 @@ class AdaNS_sampler(object):
                 'alpha_vals': alpha_vals,
                 'all_samples': self.all_samples,
                 'all_scores': self.all_scores,
-                'good_samples': self.good_samples,
-                }
+                'good_samples':self.good_samples}
+
         if len(self.all_subsamples)>0:
             info['all_subsamples'] = self.all_subsamples
 
@@ -568,8 +563,8 @@ class Gaussian_sampler(AdaNS_sampler):
         data = self.all_samples[self.good_samples]
         assert len(np.unique(data, axis=0))==data.shape[0], (len(np.unique(data, axis=0)), data.shape[0])
 
-        # scores = self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])
-        scores = self.all_scores[self.good_samples] - np.min(self.all_scores)
+        scores = self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])
+        # scores = self.all_scores[self.good_samples] - np.min(self.all_scores)
         avg_good_scores = np.mean(scores)
         scores = scores + avg_good_scores
         assert np.sum(scores>=0)==len(scores)
@@ -579,31 +574,28 @@ class Gaussian_sampler(AdaNS_sampler):
         
         max_all_dims = np.max(data, axis=0)
         min_all_dims = np.min(data, axis=0)
-
-        for i in range(len(max_all_dims)):
-            if max_all_dims[i] == min_all_dims[i]:
-                max_all_dims[i] = np.max(self.all_samples, axis=0)[i]
-                min_all_dims[i] = np.min(self.all_samples, axis=0)[i]
-
+        
         gaussian_means = data
         gaussian_covs = np.asarray([((max_all_dims-min_all_dims)/4.0)**2 for _ in range(len(data))])
         gaussian_mix = GaussianMixture(n_components=data.shape[0], covariance_type='diag',
-                                      weights_init=np.ones(data.shape[0])/data.shape[0], means_init=data)#, reg_covar=1e-5)
-        gaussian_mix.fit(X=data)
-        gaussian_mix.means_ = gaussian_means
-        gaussian_mix.covariances_ = gaussian_covs
-
-        if np.sum(scores)==0:
-            print('====== sum of scores was zero')
-            gaussian_mix.weights_ = [1./len(scores)] * len(scores)
-        else:
-            gaussian_mix.weights_ = scores/np.sum(scores)
+                                      weights_init=np.ones(data.shape[0])/data.shape[0], means_init=data)
+        try:
+            gaussian_mix.fit(X=data)
+            gaussian_mix.means_ = gaussian_means
+            gaussian_mix.covariances_ = gaussian_covs
+            if np.sum(scores)==0:
+                print('====== sum of scores was zero')
+                gaussian_mix.weights_ = [1./len(scores)] * len(scores)
+            else:
+                gaussian_mix.weights_ = scores/np.sum(scores)
         
-        if local_sampling>0:
-            local_samples  = gaussian_mix.sample(n_samples=local_sampling)[0]
-            local_samples  = np.clip(local_samples, self.boundaries[:,0], self.boundaries[:,1])
-        else:
-            local_samples = np.zeros((0, self.dimensions))
+            if local_sampling>0:
+                local_samples  = gaussian_mix.sample(n_samples=local_sampling)[0]
+                local_samples  = np.clip(local_samples, self.boundaries[:,0], self.boundaries[:,1])
+            else:
+                local_samples = np.zeros((0, self.dimensions))
+        except:
+            local_samples  = self.sample_uniform(num_samples=local_sampling)
         
         # "Cross" samples created with gaussians    
         cross_sampling = int(num_samples*self.cross_portion+0.001)
@@ -1118,7 +1110,8 @@ class Zoom_sampler(AdaNS_sampler):
 
 
 class RandomOrder_sampler(AdaNS_sampler):
-    def __init__(self, length, minimum_num_good_samples, p_swap_min=0.0, p_swap_max=0.5, u_random_portion=0., parents_portion=0., swap_method='adjacent'):
+    def __init__(self, length, minimum_num_good_samples, p_swap_min=0.0, p_swap_max=0.5, u_random_portion=0., parents_portion=0., 
+                    swap_method='adjacent', groundtruth_order=None):
         '''
             - length: length of sequence to be reordered
             - u_random_portion: portion of samples taken uniformly at random 
@@ -1132,10 +1125,33 @@ class RandomOrder_sampler(AdaNS_sampler):
         self.p_swap_min = p_swap_min
         self.p_swap_max = p_swap_max
         self.swap_method = swap_method
+        self.groundtruth_order = groundtruth_order
 
         assert u_random_portion + parents_portion <= 1., 'sum of portions must be <=1'
     
+    def check_constraints(self, sample):
+        def check_order(array1, array2):
+            if not isinstance(array2, list):
+                array2 = array2.tolist()
+            
+            indices = np.asarray([])
+            for element in array1:
+                idx = array2.index(element)
+                if not np.all(indices <= idx):
+                    return False
+                indices = np.append(indices, idx)
+            return True
+    
+        for user_order in self.groundtruth_order.values():
+            if len(user_order)==1:
+                continue
+            flag = check_order(user_order, sample)
+            if not flag:
+                return False
 
+        return True
+    
+    
     def sample_uniform(self, num_samples=1):
         '''
         function to sample unifromly from all the search-space
@@ -1144,8 +1160,10 @@ class RandomOrder_sampler(AdaNS_sampler):
         if num_samples>0:
             sample_vectors = np.expand_dims(np.random.permutation(self.length), axis=0)
             while len(sample_vectors) < num_samples:
-                sample_vectors = np.concatenate((sample_vectors, np.expand_dims(np.random.permutation(self.length), axis=0)), axis=0)
-                sample_vectors = np.unique(sample_vectors, axis=0)
+                new_sample = np.random.permutation(self.length)
+                if self.check_constraints(new_sample):
+                    sample_vectors = np.concatenate((sample_vectors, np.expand_dims(new_sample, axis=0)), axis=0)
+                    sample_vectors = np.unique(sample_vectors, axis=0)
         else:
             sample_vectors = np.zeros((0, self.dimensions))
 
@@ -1208,6 +1226,8 @@ class RandomOrder_sampler(AdaNS_sampler):
         n_random_samples = int(self.u_random_portion * num_samples)
         if n_random_samples > 0.:
             random_samples = self.sample_uniform(num_samples=n_random_samples)
+        else:
+            random_samples = np.zeros((0, self.dimensions)).astype(np.int32)
         
         num_parents = int(self.parents_portion * num_samples)
         if num_parents > 0:
@@ -1250,9 +1270,13 @@ class RandomOrder_sampler(AdaNS_sampler):
             else:
                 prob_swap = (randorder_scores / np.max(randorder_scores)) * (self.p_swap_max - self.p_swap_min)
                 prob_swap += self.p_swap_min
-            for idx in range(num_samples):
+            idx = 0
+            while idx < num_samples:
                 #----------------- swapping
-                randorder_samples[idx] = swap_func(randorder_samples[idx], p_swap=prob_swap[idx])
+                new_sample = swap_func(randorder_samples[idx], p_swap=prob_swap[idx])
+                if self.check_constraints(new_sample):
+                    randorder_samples[idx] = new_sample
+                    idx += 1
 
         if residual_samples > 0:
             random_samples = np.concatenate((random_samples, self.sample_uniform(num_samples=residual_samples)), axis=0)
