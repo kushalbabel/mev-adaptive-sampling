@@ -3,7 +3,7 @@ import shutil
 import argparse
 import logging
 import pickle
-import re
+import copy
 from tqdm import tqdm
 import numpy as np
 import multiprocessing as mp
@@ -62,27 +62,33 @@ def reorder(transactions, order):
     return reordered_transactions
 
 
-def get_groundtruth_order(transaction_lines):
+def get_groundtruth_order(transaction_lines, include_miner=False):
     user_transactions = {}
-    
+    miner_idx = 0
     for idx, line in enumerate(transaction_lines):
         if line.startswith('#'):
             #TODO remove for performance in prod
             continue
         elements = line.strip().split(',')
-        tx_type = elements[0]
-        if tx_type == '0':
+        tx_user = elements[1]
+        if tx_user != 'miner':
             user_id = elements[1]
             if user_id in user_transactions:
                 user_transactions[user_id].append(idx)
             else:
                 user_transactions[user_id] = [idx]
+        elif include_miner:
+            user_id = 'M' + str(miner_idx)
+            assert not user_id in user_transactions
+            user_transactions[user_id] = [idx]
+            miner_idx += 1
+
     return user_transactions
 
 
 class Reorder_evaluator(object):
     def __init__(self, transactions, domain, n_iter_gauss, num_samples, minimum_num_good_samples, u_random_portion, local_portion, cross_portion, 
-                pair_selection, alpha_max, early_stopping, save_path, n_parallel):
+                pair_selection, alpha_max, early_stopping, save_path, n_parallel, use_repr=False, groundtruth_order=None):
         self.transactions = transactions
         self.domain = domain
 
@@ -99,14 +105,54 @@ class Reorder_evaluator(object):
         self.save_path = os.path.join(save_path, f'{n_iter_gauss}iter_{num_samples}nsamples_{u_random_portion}random_{local_portion}local_{cross_portion}_cross')
         self.n_parallel = n_parallel
 
-    def evaluate(self, sample):
-        transactions = reorder(self.transactions, sample)
+        self.use_repr = use_repr
+        self.groundtruth_order = groundtruth_order
+        assert self.groundtruth_order is not None, 'need to provide the original order of transactions if using abstract representation'
+    
+    def translate_sample(self, sample_repr):
+        gt_order = copy.deepcopy(self.groundtruth_order)
+        sample = []
+        for s in sample_repr:
+            sample.append(gt_order[s].pop(0))
+        for v in gt_order.values():
+            assert len(v)==0
+    
+        return np.asarray(sample)
 
+    def check_constraints(self, sample):
+        def check_order(array1, array2):
+            if not isinstance(array2, list):
+                array2 = array2.tolist()
+            
+            indices = np.asarray([])
+            for element in array1:
+                idx = array2.index(element)
+                if not np.all(indices <= idx):
+                    return False
+                indices = np.append(indices, idx)
+            return True
+    
+        for user_order in self.groundtruth_order.values():
+            if len(user_order)==1:
+                continue
+            flag = check_order(user_order, sample)
+            if not flag:
+                return False
+
+        return True
+            
+    def evaluate(self, sample):
+        if self.use_repr:
+            sample = self.translate_sample(sample)
+            assert self.check_constraints(sample)
+        
+        transactions = reorder(self.transactions, sample)
         params = get_params(transactions)
         boundaries = []
         for p_name in params:
             boundaries.append(list(self.domain[p_name]))
         boundaries = np.asarray(boundaries)
+        print('=> current reordering sample:', transactions)
 
         mev_evaluator = MEV_evaluator(transactions, params)
 
@@ -118,7 +164,7 @@ class Reorder_evaluator(object):
         print('=> Starting alpha variable optimization')
         best_sample, best_mev = sampler.run_sampling(mev_evaluator.evaluate, num_samples=self.num_samples, n_iter=self.n_iter_gauss, minimize=False, 
                                             alpha_max=self.alpha_max, early_stopping=self.early_stopping, save_path=self.save_path, 
-                                            n_parallel=self.n_parallel, plot_contour=False, executor=mp.Pool, param_names=params)
+                                            n_parallel=self.n_parallel, plot_contour=False, executor=mp.Pool, param_names=params, verbose=False)
         print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
         print('maximum MEV:', best_mev)
         print('-------------------------------------')
@@ -137,6 +183,8 @@ def main(args, transaction, grid_search=False):
                 pass
             elif args.swap_method == 'adjacent_subset':
                 args.name += '_adjsubset'
+            elif args.swap_method == 'adjacent_neighbor':
+                args.name += '_neighbor'
             else:
                 raise NotImplementedError
         elif grid_search:
@@ -243,7 +291,7 @@ def main(args, transaction, grid_search=False):
                 print('maximum MEV:', scores[idx])
 
     else:
-        gt_order = get_groundtruth_order(transactions[1:])
+        gt_order = get_groundtruth_order(transactions[1:], include_miner=True)
         sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
                                     p_swap_min=args.p_swap_min, p_swap_max=args.p_swap_max, 
                                     u_random_portion=args.u_random_portion, parents_portion=args.parents_portion,
@@ -251,7 +299,8 @@ def main(args, transaction, grid_search=False):
 
         evaluator = Reorder_evaluator(transactions, domain, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                         args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
-                                        args.alpha_max, args.early_stopping, args.save_path, args.n_parallel)
+                                        args.alpha_max, args.early_stopping, args.save_path, args.n_parallel,
+                                        use_repr=True, groundtruth_order=gt_order)
         #---------------- Run Sampling
         print('=> Starting reordering optimization')
         best_order, best_mev, best_variables = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
@@ -260,8 +309,11 @@ def main(args, transaction, grid_search=False):
         
         # check that the variable values are correct
         vars = list(best_variables.keys())
-        evaluator = MEV_evaluator(reorder(transactions, best_order), vars)
-        mev = evaluator.evaluate([best_variables[k] for k in vars])
+        if evaluator.use_repr:
+            best_order = evaluator.translate_sample(best_order)
+            assert evaluator.check_constraints(best_order)
+        evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars)
+        mev = evaluator_.evaluate([best_variables[k] for k in vars])
         print(f'expected {best_mev}, got {mev}')
         assert mev == best_mev
         
@@ -292,7 +344,7 @@ if __name__ == '__main__':
     parser.add_argument('--parents_portion', default=0.1, type=float, help='portion of good samples to keep for the next round (default:0.1)')
     parser.add_argument('--p_swap_min', default=0.0, type=float, help='minimum probability of per-element swap (default:0.0)')
     parser.add_argument('--p_swap_max', default=0.5, type=float, help='maximum probability of per-element swap (default:0.5)')
-    parser.add_argument('--swap_method', default='adjacent', type=str, help='choose swapping method from [adjacent, adjacent_subset] (default:adjacent)')
+    parser.add_argument('--swap_method', default='adjacent_neighbor', type=str, help='choose swapping method from [adjacent, adjacent_neighbor, adjacent_subset] (default:adjacent)')
 
     #------------ Arguments for adaptive sampling
     parser.add_argument('--name', default=None, help='name of the experiment (default: None)')

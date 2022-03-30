@@ -31,15 +31,16 @@ HAS NO OBLIGATIONS TO PROVIDE MAINTENANCE, SUPPORT, UPDATES,
 ENHANCEMENTS, OR MODIFICATIONS.
 """
 
-
 import os
 import time
+import random
 import copy
 import numpy as np
 import multiprocessing as mp
 import matplotlib
 import matplotlib.pyplot as plt
 import pickle
+from sklearn import neighbors
 
 from tqdm import tqdm
 from sklearn.mixture import GaussianMixture
@@ -119,8 +120,6 @@ class AdaNS_sampler(object):
                 sample_vectors = np.unique(sample_vectors, axis=0)
         else:
             sample_vectors = np.zeros((0, self.dimensions))
-
-
 
         return sample_vectors
     
@@ -265,7 +264,8 @@ class AdaNS_sampler(object):
         alpha_vals = []
         num_not_improve = 0
 
-        runtime = AverageMeter('Time', ':6.3f')
+        runtime_total = AverageMeter('Time', ':6.3f')
+        runtime_simulation = AverageMeter('Time', ':6.3f')
         for iteration in range(n_iter):
             t0 = time.time()
             if iteration==0:
@@ -295,8 +295,8 @@ class AdaNS_sampler(object):
             scores = np.zeros(len(samples))
             subsamples = []
             n_batches = len(samples)//n_parallel if len(samples)%n_parallel==0 else (len(samples)//n_parallel)+1
+            t1 = time.time()
             # with tqdm(total=n_batches) as pbar:
-
             for i in range(n_batches):
                 if n_parallel > 1:
                     batch_samples = samples[i*n_parallel:(i+1)*n_parallel]
@@ -320,6 +320,7 @@ class AdaNS_sampler(object):
                 # pbar.update(1)
                 # pbar.set_description('batch %s/%s (samples %s..%s/%s)'%(i+1, num_samples//n_parallel, i*n_parallel, \
                 #                                 (i+1)*n_parallel, num_samples))    
+            runtime_simulation.update(time.time()-t1)
 
             subsamples = None if len(subsamples) == 0 else subsamples 
             self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max, subsamples=subsamples)
@@ -349,15 +350,14 @@ class AdaNS_sampler(object):
             if subsamples is not None:
                 best_subsamples.append(self.all_subsamples[id_best])
             
-            runtime.update(time.time()-t0)
+            runtime_total.update(time.time()-t0)
             if verbose:
                 print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
                 print('=> average score on %d good samples: %.3f' %(np.sum(self.good_samples), np.mean(self.all_scores[self.good_samples])))
                 # print(self.all_samples[self.good_samples][:10])
                 print('best sample:', self.all_samples[id_best])
-                print('=> average time per iteration: %.3f' % runtime.summary())
-
-        print('=> average time per iteration:', runtime.summary())
+            print('=> average simulation time per iteration: %.3f' % runtime_simulation.avg)
+            print('=> average total time per iteration: %.3f' % runtime_total.avg)
 
         info = {'best_samples': np.asarray(best_samples),
                 'best_scores': np.asarray(best_scores),
@@ -1125,9 +1125,18 @@ class RandomOrder_sampler(AdaNS_sampler):
         self.p_swap_min = p_swap_min
         self.p_swap_max = p_swap_max
         self.swap_method = swap_method
-        self.groundtruth_order = groundtruth_order
-
+    
         assert u_random_portion + parents_portion <= 1., 'sum of portions must be <=1'
+        
+        self.groundtruth_order = groundtruth_order
+        self.create_order_respresentation()
+    
+    def create_order_respresentation(self):
+        self.order_repr = []
+        for k, v in self.groundtruth_order.items():
+            self.order_repr += [k] * len(v)
+        # print('order representation:', self.order_repr)
+    
     
     def check_constraints(self, sample):
         def check_order(array1, array2):
@@ -1152,22 +1161,57 @@ class RandomOrder_sampler(AdaNS_sampler):
         return True
     
     
+    def get_neighbors(self, sample):
+        neighbors = []
+        for idx in range(len(sample)):
+            if idx+1 < len(sample):
+                if sample[idx+1] == sample[idx]:
+                    continue
+                new_sample = copy.deepcopy(sample)
+                new_sample[idx], new_sample[idx+1] = new_sample[idx+1], new_sample[idx]
+                neighbors.append(new_sample)
+        # print('original sample:', sample)
+        # print('neighbors:', neighbors)
+        return neighbors
+    
+    
     def sample_uniform(self, num_samples=1):
         '''
         function to sample unifromly from all the search-space
             - num_samples: number of samples to take
         '''
+        def perm_generator(seq):
+            seen = set()
+            length = len(seq)
+            while True:
+                perm = tuple(random.sample(seq, length))
+                if perm not in seen:
+                    seen.add(perm)
+                    yield perm
+
         if num_samples>0:
-            sample_vectors = np.expand_dims(np.random.permutation(self.length), axis=0)
-            while len(sample_vectors) < num_samples:
-                new_sample = np.random.permutation(self.length)
-                if self.check_constraints(new_sample):
-                    sample_vectors = np.concatenate((sample_vectors, np.expand_dims(new_sample, axis=0)), axis=0)
-                    sample_vectors = np.unique(sample_vectors, axis=0)
+            rand_perms = perm_generator(self.order_repr)
+            sample_vectors = np.asarray([next(rand_perms) for _ in range(num_samples)])
+            assert len(np.unique(sample_vectors, axis=0)) == num_samples
         else:
             sample_vectors = np.zeros((0, self.dimensions))
 
         return sample_vectors
+    
+    
+    def swap_adjacent_neighbors(self, sample, p_swap):
+        '''
+        function to swap the order in the sample
+        '''
+        n_swaps = max(1, int(p_swap * len(sample)))
+        #--------------- do swap
+        new_sample = copy.deepcopy(sample)
+        for _ in range(n_swaps):
+            neighbors = self.get_neighbors(new_sample)
+            new_sample = random.choice(neighbors)
+            # print('new_sample:', new_sample)
+
+        return new_sample
     
     
     def swap_adjacent(self, sample, p_swap):
@@ -1241,6 +1285,8 @@ class RandomOrder_sampler(AdaNS_sampler):
         else:
             if self.swap_method=='adjacent':
                 swap_func = self.swap_adjacent
+            elif self.swap_method=='adjacent_neighbor':
+                swap_func = self.swap_adjacent_neighbors
             elif self.swap_method=='adjacent_subset':
                 swap_func = self.swap_adjacent_subset
             else:
@@ -1254,8 +1300,8 @@ class RandomOrder_sampler(AdaNS_sampler):
                 randorder_scores = self.all_scores[self.good_samples][:num_samples]
             else:
                 inds = np.where(self.good_samples)[0]
-                # probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples]))
-                probs = (self.all_scores[self.good_samples] - np.min(self.all_scores))
+                probs = (self.all_scores[self.good_samples] - np.min(self.all_scores[self.good_samples])) + 0.001
+                # probs = (self.all_scores[self.good_samples] - np.min(self.all_scores)) + 0.001
                 if np.sum(probs)==0:
                     probs = np.ones_like(probs)
                 choices = np.random.choice(inds, size=num_samples, replace=False, p=probs/np.sum(probs))
@@ -1272,11 +1318,14 @@ class RandomOrder_sampler(AdaNS_sampler):
                 prob_swap += self.p_swap_min
             idx = 0
             while idx < num_samples:
+                print('Swapping...')
                 #----------------- swapping
                 new_sample = swap_func(randorder_samples[idx], p_swap=prob_swap[idx])
-                if self.check_constraints(new_sample):
-                    randorder_samples[idx] = new_sample
-                    idx += 1
+                randorder_samples[idx] = new_sample
+                idx += 1
+                # if self.check_constraints(new_sample):
+                #     randorder_samples[idx] = new_sample
+                #     idx += 1
 
         if residual_samples > 0:
             random_samples = np.concatenate((random_samples, self.sample_uniform(num_samples=residual_samples)), axis=0)
