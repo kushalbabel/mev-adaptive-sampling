@@ -9,6 +9,7 @@ from subprocess import Popen, PIPE
 import pandas as pd
 import re
 import random
+from web3 import Web3
 
 def to_format(transaction):
     return '0,{},{}\n'.format(transaction['from'], transaction['hash'])
@@ -76,15 +77,26 @@ for line in lines:
         block_to_tx[block_num].add(transaction_hash)
 
 
+reserves = pd.read_csv("../mev/data-scripts/latest-data/sushiswap-reserves.csv")
+eth = "1097077688018008265106216665536940668749033598146"
+address = args.file.split("/")[-1].rstrip(".csv")
+pair_info = reserves[reserves.Address == address]
+token0 = pair_info.iloc[0].Token0
+token1 = pair_info.iloc[0].Token1
+token = token0
+if token0 == eth:
+    token = token1
+token = hex(int(token))[2:].zfill(40)
+token_hex = Web3.toChecksumAddress(token)
+
 # swap_template1 = '1,miner,UniswapV2Router02,{},swapExactETHForTokens,\
 # 0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48],miner,1800000000'.format('alpha1')
 # swap_template2 = '1,miner,UniswapV2Router02,0,swapExactTokensForETH,\
 # {},0,[0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2')
-
 swap_template1 = '1,miner,SushiswapRouter,{},swapExactETHForTokens,\
-0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48],miner,1800000000'.format('alpha1')
+0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-{}],miner,1800000000'.format('alpha1', token_hex)
 swap_template2 = '1,miner,SushiswapRouter,0,swapExactTokensForETH,\
-{},0,[0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2')
+{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2', token_hex)
 
 # addition_template = '1,Miner,alpha3,eth,alpha4,usdc'
 # removal_template = '4,Miner,alpha5,eth,usdc'
@@ -111,8 +123,8 @@ for block in block_to_tx:
         if tx['hash'] in necessary_transactions:
             interacting_addresses.add(tx['from'])
             interacting_addresses.add(tx['to'])
-    f1.write('{},usdc\n'.format(block))
-    f2.write('{},usdc\n'.format(block))
+    f1.write('{},{}\n'.format(block, token_hex))
+    f2.write('{},{}\n'.format(block, token_hex))
     for tx in all_transactions:
         f1.write(to_format(tx))
         if tx['from'] in interacting_addresses or tx['to'] in interacting_addresses:

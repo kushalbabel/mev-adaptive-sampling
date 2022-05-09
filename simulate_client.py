@@ -5,7 +5,7 @@ import logging
 from copy import deepcopy
 from contracts import utils
 from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract
-from contracts.tokens import usdc_contract
+from contracts.tokens import token_contracts, erc20_abi
 from web3 import Web3
 from collections import defaultdict
 
@@ -153,10 +153,8 @@ def parse_and_sign_contract_tx(elements, sender):
         contract = uniswap_router_contract
     elif to_address == 'SushiswapRouter':
         contract = sushiswap_router_contract
-    elif to_address == 'usdc':
-        contract = usdc_contract
     else:
-        raise NotImplemented
+        contract = token_contracts[to_address]
     calldata = utils.encode_function_call1(contract, func_name, params)
     #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
     dynamic_tx = {
@@ -230,20 +228,20 @@ def simulate(lines):
     nonces = defaultdict(lambda : 0)
     bootstrap_line = lines[0].strip()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
-    #setup
+
     fork(bootstrap_block)
-    # set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
-    # set_balance(USER_ADDRESS, int(MINER_CAPITAL))
     for address in KEYS:    
         set_balance(address, int(MINER_CAPITAL))
     set_miner(MINER_ADDRESS)
 
     approved_tokens = bootstrap_line.split(',')[1:]
     for token in approved_tokens:
-        # temp disable uniswap approval cuz not needed, make more elegant
+        if token.startswith('0x'):
+            token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
+    for token in approved_tokens:
         # simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)) #1e27
         simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)) #1e27
-    #simulate transactions
+    
     for line in lines[1:]:
         if line.startswith('#'):
             continue
