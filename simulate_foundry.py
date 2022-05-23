@@ -300,11 +300,19 @@ if __name__ == '__main__':
         required=True
     )
 
+    parser.add_argument(
+        '-p', '--port',
+        help="Id of one of the many backend client",
+        required=False,
+        default=24
+    )
+
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel, format='%(message)s')
 
     logger = logging.getLogger(__name__)
 
     data_f = open(args.file, 'r')
-    mev = simulate(data_f.readlines(), 1)
+    port_id = int(args.port)
+    mev = simulate(data_f.readlines(), port_id)
     print(mev)
