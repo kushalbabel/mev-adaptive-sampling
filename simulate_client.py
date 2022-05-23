@@ -259,7 +259,7 @@ def simulate(lines):
             continue
         simulate_tx(line)
     mine_block()
-    print(query_forked_block(hex(bootstrap_block+1)))
+    # print(query_forked_block(hex(bootstrap_block+1)))
     # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
     return get_mev()
 
