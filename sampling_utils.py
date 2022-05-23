@@ -301,14 +301,14 @@ class AdaNS_sampler(object):
                 if n_parallel > 1:
                     batch_samples = samples[i*n_parallel:(i+1)*n_parallel]
                     with executor() as e:
-                        batch_output = list(e.map(evaluator, batch_samples))
+                        batch_output = list(e.starmap(evaluator, zip(batch_samples, range(n_parallel))))
                     if isinstance(batch_output[0], tuple):
                         scores[i*n_parallel:(i+1)*n_parallel] = [batch_output[i][0] for i in range(len(batch_output))]
                         subsamples += [batch_output[i][1] for i in range(len(batch_output))]
                     else:
                         scores[i*n_parallel:(i+1)*n_parallel] = batch_output
                 else:
-                    output = evaluator(samples[i])
+                    output = evaluator(samples[i], port_id=0)
                     if isinstance(output, tuple):
                         scores[i] = output[0]
                         subsamples += [output[1]]

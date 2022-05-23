@@ -10,7 +10,8 @@ import multiprocessing as mp
 import matplotlib.pyplot as plt
 
 # from simulate import simulate
-from simulate_client import simulate
+# from simulate_client import simulate
+from simulate_foundry import simulate
 from sampling_utils import Gaussian_sampler, RandomOrder_sampler
 
 def get_params(transactions):
@@ -43,12 +44,12 @@ class MEV_evaluator(object):
         self.transactions = transactions
         self.params = params
         
-    def evaluate(self, sample):
+    def evaluate(self, sample, port_id):
         # sample is a vector that has the values for parameter names in self.params    
         sample_dict = {p_name: v for p_name, v in zip(self.params, sample)}
         datum = substitute(self.transactions, sample_dict)
         logging.info(datum)
-        mev = simulate(datum)
+        mev = simulate(datum, port_id)
 
         return mev
 
@@ -141,7 +142,7 @@ class Reorder_evaluator(object):
 
         return True
             
-    def evaluate(self, sample):
+    def evaluate(self, sample, **kwargs):
         if self.use_repr:
             sample = self.translate_sample(sample)
             assert self.check_constraints(sample)
@@ -210,6 +211,8 @@ def main(args, transaction, grid_search=False):
     domain_f = open(args.domain, 'r')
     domain = {}
     for line in domain_f.readlines():
+        if line[0] == '#':
+            continue
         tokens = line.strip().split(',')
         domain[tokens[0]] = (float(tokens[1]), float(tokens[2]))
     print(domain)
@@ -299,7 +302,7 @@ def main(args, transaction, grid_search=False):
 
         evaluator = Reorder_evaluator(transactions, domain, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                         args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
-                                        args.alpha_max, args.early_stopping, args.save_path, args.n_parallel,
+                                        args.alpha_max, args.early_stopping, args.save_path, n_parallel=24,
                                         use_repr=True, groundtruth_order=gt_order)
         #---------------- Run Sampling
         print('=> Starting reordering optimization')
@@ -313,7 +316,7 @@ def main(args, transaction, grid_search=False):
             best_order = evaluator.translate_sample(best_order)
             assert evaluator.check_constraints(best_order)
         evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars)
-        mev = evaluator_.evaluate([best_variables[k] for k in vars])
+        mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0)
         print(f'expected {best_mev}, got {mev}')
         assert mev == best_mev
         
@@ -369,20 +372,20 @@ if __name__ == '__main__':
     # np.random.seed(args.seed)
 
     ntransactions = 30
-    file_pattern = ''#'_reduced'
+    file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames if file_pattern in f]
         all_files = np.sort(all_files)#[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
         
         for transaction in all_files:
-            # main(args, transaction, grid_search=args.grid)
-            try:
-                main(args, transaction, grid_search=args.grid)
+            main(args, transaction, grid_search=args.grid)
+            # try:
+            #     main(args, transaction, grid_search=args.grid)
 
-            except:
-                print(f'======== error occured when running {transaction}')
-                continue
+            # except:
+            #     print(f'======== error occured when running {transaction}')
+            #     continue
 
     else:
         assert os.path.isfile(args.transactions)
