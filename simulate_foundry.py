@@ -1,4 +1,3 @@
-
 import requests
 import json
 import argparse
@@ -100,7 +99,6 @@ def fork(bno):
 
 # in eth
 def get_mev(block):
-    # print(get_balance(MINER_ADDRESS, block))
     miner_balance = int(get_balance(MINER_ADDRESS, block)['result'], 16)
     mev = miner_balance - MINER_CAPITAL
     return mev/1e18

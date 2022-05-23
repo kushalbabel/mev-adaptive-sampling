@@ -10,7 +10,7 @@ from web3 import Web3
 from collections import defaultdict
 
 LARGE_NEGATIVE = -1e9
-FORK_URL = 'http://localhost:8546'
+FORK_URL = 'http://localhost:8547'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
 USER_ADDRESS = '0x42bD55c6502E586d66020Ece3fdA53Cb73D73b6D'
@@ -26,7 +26,6 @@ KEYS = {MINER_ADDRESS: MINER_KEY, USER_ADDRESS: USER_KEY, USER1_ADDRESS: USER1_K
 MINER_CAPITAL = 1000*1e18
 
 nonces = defaultdict(lambda: 0)
-w3 = Web3(Web3.HTTPProvider(FORK_URL))
 
 def query_block(block_number):
     data = {}
@@ -122,7 +121,7 @@ def apply_transaction(serialized_tx):
     response = json.loads(r.content)
     return response
 
-def parse_and_sign_basic_tx(elements, sender):
+def parse_and_sign_basic_tx(elements, sender, w3):
     global nonces
     to_address = elements[1]
     value = int(float(elements[2])*1e18) #given in eth, convert to wei
@@ -143,7 +142,7 @@ def parse_and_sign_basic_tx(elements, sender):
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
 
-def parse_and_sign_contract_tx(elements, sender):
+def parse_and_sign_contract_tx(elements, sender, w3):
     global nonces
     to_address = elements[1]
     value = int(float(elements[2])*1e18) #given in eth, convert to wei
@@ -206,7 +205,7 @@ def query_forked_block(block_number):
     return response
 
 
-def simulate_tx(line):
+def simulate_tx(line, w3):
     global nonces
     line = line.replace('miner', MINER_ADDRESS)
     line = line.replace('user3', USER3_ADDRESS)
@@ -223,19 +222,21 @@ def simulate_tx(line):
         # print(out)
     elif tx_type == '1':
         # inserted transaction
-        serialized_tx = parse_and_sign_contract_tx(elements[1:], sender)
+        serialized_tx = parse_and_sign_contract_tx(elements[1:], sender, w3)
         out = apply_transaction(serialized_tx)
         # print(out)
         nonces[sender] += 1
     elif tx_type == '2':
         # inserted transaction
-        serialized_tx = parse_and_sign_basic_tx(elements[1:], sender)
+        serialized_tx = parse_and_sign_basic_tx(elements[1:], sender, w3)
         out = apply_transaction(serialized_tx)
         # print(out)
         nonces[sender] += 1
 
-def simulate(lines):
-    global nonces
+def simulate(lines, port_id):
+    global nonces, FORK_URL
+    FORK_URL = 'http://localhost:{}'.format(8547+port_id)
+    w3 = Web3(Web3.HTTPProvider(FORK_URL))
     nonces = defaultdict(lambda : 0)
     bootstrap_line = lines[0].strip()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
@@ -252,12 +253,12 @@ def simulate(lines):
             token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
     for token in approved_tokens:
         # simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)) #1e27
-        simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)) #1e27
+        simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address), w3) #1e27
     
     for line in lines[1:]:
         if line.startswith('#'):
             continue
-        simulate_tx(line)
+        simulate_tx(line, w3)
     mine_block()
     # print(query_forked_block(hex(bootstrap_block+1)))
     # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
@@ -280,11 +281,21 @@ if __name__ == '__main__':
         required=True
     )
 
+    parser.add_argument(
+        '-p', '--port',
+        help="Id of one of the many backend client",
+        required=False,
+        default=24
+    )
+
+
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel, format='%(message)s')
 
     logger = logging.getLogger(__name__)
 
     data_f = open(args.file, 'r')
-    mev = simulate(data_f.readlines())
+    port_id = int(args.port)
+
+    mev = simulate(data_f.readlines(), port_id)
     print(mev)
