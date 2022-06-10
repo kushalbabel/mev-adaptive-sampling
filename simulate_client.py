@@ -137,7 +137,6 @@ def parse_and_sign_basic_tx(elements, sender, w3):
         'chainId': 1,
     }
     tx = dynamic_tx
-    # print(tx)
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=KEYS[sender])
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
@@ -148,6 +147,7 @@ def parse_and_sign_contract_tx(elements, sender, w3):
     value = int(float(elements[2])*1e18) #given in eth, convert to wei
     func_name = elements[3]
     params = elements[4:]
+    # clean up and make the to_addr uniformly handled
     if to_address == 'UniswapV2Router02':
         contract = uniswap_router_contract
     elif to_address == 'SushiswapRouter':
@@ -168,7 +168,6 @@ def parse_and_sign_contract_tx(elements, sender, w3):
         'chainId': 1,
     }
     tx = dynamic_tx
-    # print(tx)
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=KEYS[sender])
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
@@ -204,6 +203,10 @@ def query_forked_block(block_number):
     response = json.loads(r.content)
     return response
 
+def get_token_balance(w3, user_addr, token_addr):
+    contract = token_contracts[token_addr]
+    balance = contract.functions.balanceOf(user_addr).call()
+    return balance
 
 def simulate_tx(line, w3):
     global nonces
@@ -260,8 +263,13 @@ def simulate(lines, port_id):
             continue
         simulate_tx(line, w3)
     mine_block()
+    for token in approved_tokens:
+        token_addr = token_contracts[token].address
+        balance = get_token_balance(w3, MINER_ADDRESS, token_addr)
+        simulate_tx('1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr), w3)
     # print(query_forked_block(hex(bootstrap_block+1)))
     # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
+    mine_block()
     return get_mev()
 
 if __name__ == '__main__':
@@ -285,7 +293,7 @@ if __name__ == '__main__':
         '-p', '--port',
         help="Id of one of the many backend client",
         required=False,
-        default=24
+        default=-1
     )
 
 
