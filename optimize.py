@@ -10,9 +10,12 @@ import multiprocessing as mp
 import matplotlib.pyplot as plt
 
 # from simulate import simulate
-# from simulate_client import simulate
-from simulate_foundry import simulate
+from simulate_client import simulate
+# from simulate_foundry import simulate
 from sampling_utils import Gaussian_sampler, RandomOrder_sampler
+
+VALID_RANGE = {'0x397ff1542f962076d0bfe58ea045ffa2d347aca0': 1e6,
+               '0x795065dcc9f64b5614c407a6efdc400da6221fb0': 1e6}
 
 def get_params(transactions):
     params = set()
@@ -40,13 +43,16 @@ def substitute(transactions, sample):
 
 # transactions: parametric list of transactions (a transaction is csv values)
 class MEV_evaluator(object):
-    def __init__(self, transactions, params):
+    def __init__(self, transactions, params, domain_scales):
         self.transactions = transactions
         self.params = params
+        self.domain_scales = domain_scales
         
     def evaluate(self, sample, port_id):
         # sample is a vector that has the values for parameter names in self.params    
-        sample_dict = {p_name: v for p_name, v in zip(self.params, sample)}
+        sample_dict = {}
+        for p_name, v in zip(self.params, sample):
+            sample_dict[p_name] = v * self.domain_scales[p_name]
         datum = substitute(self.transactions, sample_dict)
         logging.info(datum)
         mev = simulate(datum, port_id)
@@ -88,10 +94,11 @@ def get_groundtruth_order(transaction_lines, include_miner=False):
 
 
 class Reorder_evaluator(object):
-    def __init__(self, transactions, domain, n_iter_gauss, num_samples, minimum_num_good_samples, u_random_portion, local_portion, cross_portion, 
+    def __init__(self, transactions, domain, domain_scales, n_iter_gauss, num_samples, minimum_num_good_samples, u_random_portion, local_portion, cross_portion, 
                 pair_selection, alpha_max, early_stopping, save_path, n_parallel, use_repr=False, groundtruth_order=None):
         self.transactions = transactions
         self.domain = domain
+        self.domain_scales = domain_scales
 
         # arguments for the gaussian sampler 
         self.n_iter_gauss = n_iter_gauss
@@ -155,7 +162,7 @@ class Reorder_evaluator(object):
         boundaries = np.asarray(boundaries)
         print('=> current reordering sample:', transactions)
 
-        mev_evaluator = MEV_evaluator(transactions, params)
+        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales)
 
         # perform adaptive sampling to optimize alpha values
         sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=self.minimum_num_good_samples, 
@@ -192,11 +199,14 @@ def main(args, transaction, grid_search=False):
             args.name = 'grid_search'
         else:
             args.name = f'{args.n_iter_gauss}iter_{args.num_samples_gauss}nsamples_{args.u_random_portion_gauss}random_{args.local_portion}local_{args.cross_portion}_cross'
-    problem_name = os.path.basename(transaction)
+    if 'amm' in transaction:
+        problem_name = os.path.basename(os.path.abspath(os.path.join(transaction, os.pardir)))
+    else:
+        problem_name = os.path.basename(transaction)
     testset = os.path.basename(os.path.dirname(transaction))
     print(f'----------{problem_name}----------')
 
-    args.save_path = os.path.join('artifacts2', testset, problem_name, args.name)
+    args.save_path = os.path.join('artifacts_smooth', testset, problem_name, args.name)
     os.makedirs(args.save_path, exist_ok=True)  
     print('=> Saving artifacts to %s' % args.save_path)
     shutil.copyfile(transaction, os.path.join(args.save_path, 'transactions'))
@@ -210,12 +220,22 @@ def main(args, transaction, grid_search=False):
 
     domain_f = open(args.domain, 'r')
     domain = {}
+    domain_scales = {}
     for line in domain_f.readlines():
         if line[0] == '#':
             continue
         tokens = line.strip().split(',')
-        domain[tokens[0]] = (float(tokens[1]), float(tokens[2]))
-    print(domain)
+
+        # TODO: add other currencies here
+        lower_lim, upper_lim = float(tokens[1]), float(tokens[2])
+        if upper_lim > VALID_RANGE[args.domain.split('/')[-2]]:
+            domain_scales[tokens[0]] = upper_lim / VALID_RANGE[args.domain.split('/')[-2]]
+            upper_lim = VALID_RANGE[args.domain.split('/')[-2]]
+        else:
+            domain_scales[tokens[0]] = 1.0
+        domain[tokens[0]] = (lower_lim, upper_lim)
+    print('domain:', domain)
+    print('domain scales:', domain_scales)
 
     if not args.reorder:  
         params = get_params(transactions)
@@ -225,7 +245,7 @@ def main(args, transaction, grid_search=False):
             boundaries.append(list(domain[p_name]))
         boundaries = np.asarray(boundaries)
 
-        evaluator = MEV_evaluator(transactions, params)
+        evaluator = MEV_evaluator(transactions, params, domain_scales=domain_scales)
 
         if not grid_search:   # perform adaptive sampling to optimize alpha values
             sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=int(0.5*args.num_samples_gauss), 
@@ -300,14 +320,14 @@ def main(args, transaction, grid_search=False):
                                     u_random_portion=args.u_random_portion, parents_portion=args.parents_portion,
                                     swap_method=args.swap_method, groundtruth_order=gt_order)
 
-        evaluator = Reorder_evaluator(transactions, domain, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
+        evaluator = Reorder_evaluator(transactions, domain, domain_scales, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                         args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
-                                        args.alpha_max, args.early_stopping, args.save_path, n_parallel=24,
+                                        args.alpha_max, args.early_stopping, args.save_path, n_parallel=args.n_parallel_gauss,
                                         use_repr=True, groundtruth_order=gt_order)
         #---------------- Run Sampling
         print('=> Starting reordering optimization')
         best_order, best_mev, best_variables = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
-                                            alpha_max=args.alpha_max, early_stopping=1000, save_path=args.save_path, 
+                                            alpha_max=args.alpha_max, early_stopping=10, save_path=args.save_path, 
                                             n_parallel=args.n_parallel, plot_contour=False, executor=mp.Pool, param_names=None, verbose=True)
         
         # check that the variable values are correct
@@ -315,7 +335,7 @@ def main(args, transaction, grid_search=False):
         if evaluator.use_repr:
             best_order = evaluator.translate_sample(best_order)
             assert evaluator.check_constraints(best_order)
-        evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars)
+        evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales)
         mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0)
         print(f'expected {best_mev}, got {mev}')
         assert mev == best_mev
@@ -367,6 +387,7 @@ if __name__ == '__main__':
     parser.add_argument('--local_portion', default=0.4, type=float, help='portion of samples to take from gaussians using the Local method (default:0.4)')
     parser.add_argument('--cross_portion', default=0.4, type=float, help='portion of samples to take from gaussians using the Cross method (default:0.4)')
     parser.add_argument('--pair_selection', default='top_and_random', type=str, help='how to select sample pairs for crossing, choose from [random,top_scores,top_and_nearest,top_and_furthest,top_and_random] (default:top_and_random)')
+    parser.add_argument('--n_parallel_gauss', default=44, type=int, help='number of cores for parallel evaluations of Gaussian sampler (default:44)')
 
     args = parser.parse_args()  
     # np.random.seed(args.seed)
@@ -374,10 +395,11 @@ if __name__ == '__main__':
     ntransactions = 30
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
-        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames if file_pattern in f]
-        all_files = np.sort(all_files)#[:ntransactions]
+        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
+                        if file_pattern in f and int(os.path.basename(dp))>13e6]
+        all_files = np.sort(all_files)[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
-        
+
         for transaction in all_files:
             main(args, transaction, grid_search=args.grid)
             # try:

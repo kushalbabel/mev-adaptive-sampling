@@ -356,8 +356,8 @@ class AdaNS_sampler(object):
                 print('=> average score on %d good samples: %.3f' %(np.sum(self.good_samples), np.mean(self.all_scores[self.good_samples])))
                 # print(self.all_samples[self.good_samples][:10])
                 print('best sample:', self.all_samples[id_best])
-            print('=> average simulation time per iteration: %.3f' % runtime_simulation.avg)
-            print('=> average total time per iteration: %.3f' % runtime_total.avg)
+                print('=> average simulation time per iteration: %.3f' % runtime_simulation.avg)
+                print('=> average total time per iteration: %.3f' % runtime_total.avg)
 
         info = {'best_samples': np.asarray(best_samples),
                 'best_scores': np.asarray(best_scores),
@@ -638,7 +638,7 @@ class Gaussian_sampler(AdaNS_sampler):
         origins = [origins[i] for i in indices]
         while len(sample_vectors) < num_samples:
             count = num_samples - len(sample_vectors)
-            print(f'adding {count} more random samples')
+            # print(f'adding {count} more random samples')
             sample_vectors = np.concatenate((sample_vectors, self.sample_uniform(num_samples=count)))
             origins += ['U'] * count
             sample_vectors, indices = np.unique(sample_vectors, axis=0, return_index=True)
