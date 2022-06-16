@@ -3,3 +3,7 @@ Sample optimization command:
 
 If you want to run simulation standalone, sample command:
 `python3 simulate.py -f vector_data.txt`
+
+To check if a client is stuck:
+`cd simulation`
+`bash ping_hardhats.sh`
