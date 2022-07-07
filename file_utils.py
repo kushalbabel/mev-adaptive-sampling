@@ -73,7 +73,7 @@ def gather_results(path, pattern):
     for p in paths:
         with open(p, 'rb') as f:
             info = pickle.load(f)
-        problem_name = re.search('(problem_[0-9]+)', p).group(1)
+        problem_name = p.split('/')[-3] #re.search('(problem_[0-9]+)', p).group(1)
         results[problem_name] = info['best_scores']
 
     return results

@@ -4,6 +4,7 @@ import argparse
 import logging
 import pickle
 import copy
+import math
 from tqdm import tqdm
 import numpy as np
 import multiprocessing as mp
@@ -206,6 +207,9 @@ def main(args, transaction, grid_search=False):
     testset = os.path.basename(os.path.dirname(transaction))
     print(f'----------{problem_name}----------')
 
+    if problem_name in ['10829669', '10829714', '10829884', '10830411', '10830492']:
+        return
+
     args.save_path = os.path.join('artifacts_smooth', testset, problem_name, args.name)
     os.makedirs(args.save_path, exist_ok=True)  
     print('=> Saving artifacts to %s' % args.save_path)
@@ -315,6 +319,11 @@ def main(args, transaction, grid_search=False):
 
     else:
         gt_order = get_groundtruth_order(transactions[1:], include_miner=True)
+
+        n_reorders = math.factorial(len(transactions)-1)
+        if n_reorders < args.num_samples:
+            args.num_samples = n_reorders
+
         sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
                                     p_swap_min=args.p_swap_min, p_swap_max=args.p_swap_max, 
                                     u_random_portion=args.u_random_portion, parents_portion=args.parents_portion,
@@ -396,7 +405,7 @@ if __name__ == '__main__':
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
-                        if file_pattern in f and int(os.path.basename(dp))>13e6]
+                        if file_pattern in f and int(os.path.basename(dp))<=13e6]
         all_files = np.sort(all_files)[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
 
