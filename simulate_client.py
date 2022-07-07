@@ -203,9 +203,21 @@ def query_forked_block(block_number):
     response = json.loads(r.content)
     return response
 
-def get_token_balance(w3, user_addr, token_addr):
-    contract = token_contracts[token_addr]
-    balance = contract.functions.balanceOf(user_addr).call()
+def get_token_balance(user_addr, token_addr):
+    # contract = token_contracts[token_addr]
+    # balance = contract.functions.balanceOf(user_addr).call()
+    # return balance
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_call'
+    function_selector = "0x70a08231000000000000000000000000"
+    calldata = function_selector + user_addr.replace("0x","")
+    data["params"] = [{"to": token_addr, "data":calldata}, "latest"]
+    data['id'] = 1
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    balance = int(response['result'], 16)
+    # print("Token balance", balance)
     return balance
 
 def simulate_tx(line, w3):
@@ -265,7 +277,7 @@ def simulate(lines, port_id):
     mine_block()
     for token in approved_tokens:
         token_addr = token_contracts[token].address
-        balance = get_token_balance(w3, MINER_ADDRESS, token_addr)
+        balance = get_token_balance(MINER_ADDRESS, token_addr)
         simulate_tx('1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr), w3)
     # print(query_forked_block(hex(bootstrap_block+1)))
     # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
