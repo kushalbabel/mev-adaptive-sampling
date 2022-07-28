@@ -8,6 +8,12 @@ from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract
 from contracts.tokens import token_contracts, erc20_abi
 from web3 import Web3
 from collections import defaultdict
+import logging
+
+simlogger = logging.getLogger(__name__)
+sim_log_handler = logging.FileHandler('/home/kb742/mev-adaptive-sampling/output.log')
+simlogger.addHandler(sim_log_handler)
+simlogger.setLevel(logging.DEBUG)
 
 LARGE_NEGATIVE = -1e9
 FORK_URL = 'http://localhost:8547'
@@ -216,6 +222,8 @@ def get_token_balance(user_addr, token_addr):
     data['id'] = 1
     r = requests.post(FORK_URL, json=data)
     response = json.loads(r.content)
+    simlogger.debug("[REQUEST] %s", data)
+    simlogger.debug("[RESPONSE] %s", response)
     balance = int(response['result'], 16)
     # print("Token balance", balance)
     return balance
@@ -310,10 +318,7 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
-    logging.basicConfig(level=args.loglevel, format='%(message)s')
-
-    logger = logging.getLogger(__name__)
-
+    
     data_f = open(args.file, 'r')
     port_id = int(args.port)
 
