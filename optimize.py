@@ -5,6 +5,7 @@ import logging
 import pickle
 import copy
 import math
+import re
 from tqdm import tqdm
 import numpy as np
 import multiprocessing as mp
@@ -202,15 +203,19 @@ def main(args, transaction, grid_search=False):
             args.name = f'{args.n_iter_gauss}iter_{args.num_samples_gauss}nsamples_{args.u_random_portion_gauss}random_{args.local_portion}local_{args.cross_portion}_cross'
     if 'amm' in transaction:
         problem_name = os.path.basename(os.path.abspath(os.path.join(transaction, os.pardir)))
+        eth_pair = re.search('(0x[a-zA-Z0-9]+)', args.transactions).group(1)
     else:
         problem_name = os.path.basename(transaction)
-    testset = os.path.basename(os.path.dirname(transaction))
-    print(f'----------{problem_name}----------')
+        eth_pair = None
+    print(f'----------{eth_pair}_{problem_name}----------' if eth_pair is not None else f'----------{problem_name}----------')
 
-    if problem_name in ['10829669', '10829714', '10829884', '10830411', '10830492']:
+    if problem_name in ['10829669', '10829714', '10829884', '10830411', '10830492', '10830517', '10830844', '10831120', '10832407', '10833196', '10833412', '10833585', '10834684', '10834733', '10835331', '10836977']:
         return
 
-    args.save_path = os.path.join('artifacts_smooth', testset, problem_name, args.name)
+    if eth_pair is not None:
+        args.save_path = os.path.join('artifacts_smooth', eth_pair, problem_name, args.name)
+    else:
+        args.save_path = os.path.join('artifacts_smooth', problem_name, args.name)
     os.makedirs(args.save_path, exist_ok=True)  
     print('=> Saving artifacts to %s' % args.save_path)
     shutil.copyfile(transaction, os.path.join(args.save_path, 'transactions'))
@@ -232,9 +237,12 @@ def main(args, transaction, grid_search=False):
 
         # TODO: add other currencies here
         lower_lim, upper_lim = float(tokens[1]), float(tokens[2])
-        if upper_lim > VALID_RANGE[args.domain.split('/')[-2]]:
-            domain_scales[tokens[0]] = upper_lim / VALID_RANGE[args.domain.split('/')[-2]]
-            upper_lim = VALID_RANGE[args.domain.split('/')[-2]]
+        token_pair = args.domain.split('/')[-2]
+        if token_pair not in VALID_RANGE.keys():
+            VALID_RANGE[token_pair] = 1e6
+        if upper_lim > VALID_RANGE[token_pair]:
+            domain_scales[tokens[0]] = upper_lim / VALID_RANGE[token_pair]
+            upper_lim = VALID_RANGE[token_pair]
         else:
             domain_scales[tokens[0]] = 1.0
         domain[tokens[0]] = (lower_lim, upper_lim)
@@ -263,10 +271,12 @@ def main(args, transaction, grid_search=False):
             print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
             print('maximum MEV:', best_mev)
 
-            with open('final_results.txt', 'a') as f:
+            log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
+            with open(log_file, 'a') as f:
                 f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion_gauss==1.0 else problem_name))
                 f.write(f'max MEV: {best_mev} \n')
                 f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
+        
         else:  # perform exhaustive grid search to optimize alpha values
             path_to_save = args.save_path
             os.makedirs(path_to_save, exist_ok=True)
@@ -311,9 +321,7 @@ def main(args, transaction, grid_search=False):
                     log = pickle.load(f)
                 params, samples = log[0], log[1]
 
-                print(len(scores))
                 idx = np.argmax(scores)
-                print(np.sum(scores < 0))
                 print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, samples[idx])})
                 print('maximum MEV:', scores[idx])
 
@@ -353,7 +361,8 @@ def main(args, transaction, grid_search=False):
         print('=> optimal variables:', best_variables)
         print('maximum MEV:', best_mev)
 
-        with open('final_results_reorder.txt', 'a') as f:
+        log_file = f'final_results_reorder_{eth_pair}.txt' if eth_pair is not None else 'final_results_reorder.txt'   
+        with open(log_file, 'a') as f:
             f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion==1.0 else problem_name))
             f.write(f'max MEV: {best_mev} \n')
             f.write('=> optimal transaction order: {} \n'.format(reorder(transactions, best_order)))
@@ -405,7 +414,7 @@ if __name__ == '__main__':
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
-                        if file_pattern in f and int(os.path.basename(dp))<=13e6]
+                        if file_pattern in f and int(os.path.basename(dp))>=13e6]
         all_files = np.sort(all_files)[:ntransactions]
         print(f'found {len(all_files)} files for optimization')
 
