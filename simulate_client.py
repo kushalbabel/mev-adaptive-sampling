@@ -11,7 +11,7 @@ from collections import defaultdict
 import logging
 
 simlogger = logging.getLogger(__name__)
-sim_log_handler = logging.FileHandler('/home/kb742/mev-adaptive-sampling/output.log')
+sim_log_handler = logging.FileHandler('output.log')
 simlogger.addHandler(sim_log_handler)
 simlogger.setLevel(logging.DEBUG)
 
@@ -262,6 +262,7 @@ def simulate(lines, port_id):
     w3 = Web3(Web3.HTTPProvider(FORK_URL))
     nonces = defaultdict(lambda : 0)
     bootstrap_line = lines[0].strip()
+    simlogger.debug("[ %s ]", bootstrap_line)
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
 
     fork(bootstrap_block)
