@@ -11,7 +11,7 @@ from collections import defaultdict
 import logging
 
 simlogger = logging.getLogger(__name__)
-sim_log_handler = logging.FileHandler('/home/kb742/mev-adaptive-sampling/output.log')
+sim_log_handler = logging.FileHandler('./output.log')
 simlogger.addHandler(sim_log_handler)
 simlogger.setLevel(logging.DEBUG)
 
