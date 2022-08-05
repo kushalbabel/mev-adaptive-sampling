@@ -372,8 +372,6 @@ def main(args, transaction, grid_search=False):
     except:
         with open(log_file, 'a') as f:
             f.write('------------------- error occured when running {} \n'.format(problem_name + '_random' if args.u_random_portion_gauss==1.0 else problem_name))
-            f.write(f'max MEV: {best_mev} \n')
-            f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Optimization')
