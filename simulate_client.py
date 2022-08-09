@@ -9,11 +9,14 @@ from contracts.tokens import token_contracts, erc20_abi
 from web3 import Web3
 from collections import defaultdict
 import logging
+import time
+from datetime import datetime
 
 simlogger = logging.getLogger(__name__)
 sim_log_handler = logging.FileHandler('output.log')
 simlogger.addHandler(sim_log_handler)
 simlogger.setLevel(logging.DEBUG)
+simlogger.propagate = False
 
 LARGE_NEGATIVE = -1e9
 FORK_URL = 'http://localhost:8547'
@@ -219,7 +222,8 @@ def get_token_balance(user_addr, token_addr):
     function_selector = "0x70a08231000000000000000000000000"
     calldata = function_selector + user_addr.replace("0x","")
     data["params"] = [{"to": token_addr, "data":calldata}, "latest"]
-    data['id'] = 1
+    now = datetime.now()
+    data['id'] = time.mktime(now.timetuple())*1e6 + now.microsecond
     r = requests.post(FORK_URL, json=data)
     response = json.loads(r.content)
     simlogger.debug("[REQUEST] %s", data)
@@ -286,7 +290,15 @@ def simulate(lines, port_id):
     mine_block()
     for token in approved_tokens:
         token_addr = token_contracts[token].address
-        balance = get_token_balance(MINER_ADDRESS, token_addr)
+        balance = None
+        debug_counter = 0
+        while balance is None:
+            try:
+                balance = get_token_balance(MINER_ADDRESS, token_addr)
+            except:
+                balance = None
+                debug_counter += 1
+                simlogger.debug("[COUNTER] %d", debug_counter)
         simulate_tx('1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr), w3)
     # print(query_forked_block(hex(bootstrap_block+1)))
     # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
