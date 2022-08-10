@@ -368,6 +368,7 @@ class AdaNS_sampler(object):
 
         if len(self.all_subsamples)>0:
             info['all_subsamples'] = self.all_subsamples
+            info['best_subsamples'] = np.asarray(best_subsamples)
 
         path_to_info = os.path.join(save_path, 'history_info.pkl')
         with open(path_to_info, 'wb') as f:

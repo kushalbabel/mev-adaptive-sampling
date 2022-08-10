@@ -50,14 +50,14 @@ class MEV_evaluator(object):
         self.params = params
         self.domain_scales = domain_scales
         
-    def evaluate(self, sample, port_id):
+    def evaluate(self, sample, port_id, best=False, logfile=None):
         # sample is a vector that has the values for parameter names in self.params    
         sample_dict = {}
         for p_name, v in zip(self.params, sample):
             sample_dict[p_name] = v * self.domain_scales[p_name]
         datum = substitute(self.transactions, sample_dict)
         logging.info(datum)
-        mev = simulate(datum, port_id)
+        mev = simulate(datum, port_id, best=best, logfile=logfile)
 
         return mev
 
@@ -209,9 +209,6 @@ def main(args, transaction, grid_search=False):
         eth_pair = None
     print(f'----------{eth_pair}_{problem_name}----------' if eth_pair is not None else f'----------{problem_name}----------')
 
-    if problem_name in ['10829669', '10829714', '10829884', '10830411', '10830492', '10830517', '10830844', '10831120', '10832407', '10833196', '10833412', '10833585', '10834684', '10834733', '10835331', '10836977']:
-        return
-
     if eth_pair is not None:
         args.save_path = os.path.join('artifacts_smooth', eth_pair, problem_name, args.name)
     else:
@@ -354,7 +351,7 @@ def main(args, transaction, grid_search=False):
                 best_order = evaluator.translate_sample(best_order)
                 assert evaluator.check_constraints(best_order)
             evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales)
-            mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0)
+            mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0, best=True, logfile=os.path.join(args.save_path, 'transactions_optimized'))
             print(f'expected {best_mev}, got {mev}')
             assert mev == best_mev
             
@@ -370,6 +367,7 @@ def main(args, transaction, grid_search=False):
                 f.write(f'params: {best_variables} \n') 
     
     except:
+        log_file = f'final_results_reorder_{eth_pair}.txt' if eth_pair is not None else 'final_results_reorder.txt'   
         with open(log_file, 'a') as f:
             f.write('------------------- error occured when running {} \n'.format(problem_name + '_random' if args.u_random_portion_gauss==1.0 else problem_name))
         
@@ -415,12 +413,11 @@ if __name__ == '__main__':
     args = parser.parse_args()  
     # np.random.seed(args.seed)
 
-    ntransactions = 30
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
                         if file_pattern in f and int(os.path.basename(dp))>=13e6]
-        all_files = np.sort(all_files)[:ntransactions]
+        all_files = np.sort(all_files)
         print(f'found {len(all_files)} files for optimization')
 
         for transaction in all_files:

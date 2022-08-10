@@ -63,18 +63,27 @@ def gather_results(path, pattern):
                 f = os.path.join(path, 'history_info.pkl')
                 if os.path.exists(f):
                     return [f]
+                else:
+                    print("no log file found in ", path)
             else:
                 for d in os.listdir(path):
                         paths += gather_result_paths(os.path.join(path, d), pattern)
         return paths
 
     paths = gather_result_paths(path, pattern)
+
     results = {}
     for p in paths:
         with open(p, 'rb') as f:
             info = pickle.load(f)
         problem_name = p.split('/')[-3] #re.search('(problem_[0-9]+)', p).group(1)
-        results[problem_name] = info['best_scores']
+        if problem_name in results.keys():
+            print(f'============== found duplicate problem name {problem_name}')
+            if np.max(info['best_scores']) > np.max(results[problem_name]):
+                results[problem_name] = info['best_scores'].tolist()
+                print('==== replacing')
+        else:
+            results[problem_name] = info['best_scores'].tolist()
 
     return results
 
