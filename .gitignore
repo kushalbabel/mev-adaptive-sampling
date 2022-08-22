@@ -1,3 +1,4 @@
+backend/anvil/logs/*
 ./artifacts
 ./venv/
 ./__pycache__/
