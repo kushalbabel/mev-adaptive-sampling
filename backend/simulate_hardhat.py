@@ -11,6 +11,7 @@ from collections import defaultdict
 import logging
 import time
 from datetime import datetime
+from utils import get_price
 
 simlogger = logging.getLogger(__name__)
 sim_log_handler = logging.FileHandler('output.log')
@@ -35,6 +36,7 @@ KEYS = {MINER_ADDRESS: MINER_KEY, USER_ADDRESS: USER_KEY, USER1_ADDRESS: USER1_K
 MINER_CAPITAL = 1000*1e18
 
 nonces = defaultdict(lambda: 0)
+prices = dict()
 
 def query_block(block_number):
     data = {}
@@ -109,6 +111,15 @@ def get_mev():
     miner_balance = int(get_balance(MINER_ADDRESS)['result'], 16)
     mev = miner_balance - MINER_CAPITAL
     return mev/1e18
+
+# in eth
+def get_mev_usd(tokens):
+    ret = 0
+    eth_balance = get_mev()
+    ret += eth_balance * prices['eth']
+    for token in tokens:
+        ret += get_token_balance(MINER_ADDRESS, token) * prices[token]
+    return ret
 
 def get_transaction(tx_hash):
     data = {}
@@ -260,6 +271,17 @@ def simulate_tx(line, w3):
         # print(out)
         nonces[sender] += 1
 
+# bootstrap_line : the first line of the problem
+def setup(bootstrap_line):
+    global prices
+    prices = dict()
+    bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
+    involved_tokens = bootstrap_line.split(',')[1:]
+    prices['eth'] = get_price(bootstrap_block, 'eth')
+    for token in involved_tokens:
+        prices[token] = get_price(bootstrap_block, token)
+
+
 def simulate(lines, port_id, best=False, logfile=None):
     global nonces, FORK_URL
     FORK_URL = 'http://localhost:{}'.format(8547+port_id)
@@ -290,33 +312,35 @@ def simulate(lines, port_id, best=False, logfile=None):
             continue
         simulate_tx(line, w3)
     mine_block()
+
     if best:    
         best_sample = []
         best_sample += lines[1:]
-    for token in approved_tokens:
-        token_addr = token_contracts[token].address
-        balance = None
-        debug_counter = 0
-        while balance is None:
-            try:
-                balance = get_token_balance(MINER_ADDRESS, token_addr)
-            except:
-                balance = None
-                debug_counter += 1
-                simlogger.debug("[COUNTER] %d", debug_counter)
-        automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr)
-        simulate_tx(automatic_tx, w3)
-        if best:
-            best_sample.append(automatic_tx)
+    
+    # for token in approved_tokens:
+    #     token_addr = token_contracts[token].address
+    #     balance = None
+    #     debug_counter = 0
+    #     while balance is None:
+    #         try:
+    #             balance = get_token_balance(MINER_ADDRESS, token_addr)
+    #         except:
+    #             balance = None
+    #             debug_counter += 1
+    #             simlogger.debug("[COUNTER] %d", debug_counter)
+    #     automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr)
+    #     simulate_tx(automatic_tx, w3)
+    #     if best:
+    #         best_sample.append(automatic_tx)
+    # mine_block()
 
-    # print(query_forked_block(hex(bootstrap_block+1)))
-    # TODO : get the mined block, and make sure that it has the same number of mined tx as passed into the simulate method (+ any bootstrapping tx)
-    mine_block()
+    
     if best:
         with open(logfile, 'w') as flog:
             for tx in best_sample:
                 flog.write('{}\n'.format(tx.strip()))
-    return get_mev()
+
+    return get_mev_usd(approved_tokens)
 
 if __name__ == '__main__':
     
@@ -347,6 +371,7 @@ if __name__ == '__main__':
     
     data_f = open(args.file, 'r')
     port_id = int(args.port)
-
-    mev = simulate(data_f.readlines(), port_id, True, 'temp')
+    lines = data_f.readlines()
+    setup(lines[0])
+    mev = simulate(lines, port_id, True, 'temp')
     print(mev)
