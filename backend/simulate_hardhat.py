@@ -273,6 +273,7 @@ def simulate_tx(line, w3):
 
 # bootstrap_line : the first line of the problem
 def setup(bootstrap_line):
+    bootstrap_line = bootstrap_line.strip()
     global prices
     prices = dict()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
@@ -372,6 +373,8 @@ if __name__ == '__main__':
     data_f = open(args.file, 'r')
     port_id = int(args.port)
     lines = data_f.readlines()
+    print("setting up...", lines[0])
     setup(lines[0])
+    print("simulating...")
     mev = simulate(lines, port_id, True, 'temp')
     print(mev)
