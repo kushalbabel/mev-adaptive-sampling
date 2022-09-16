@@ -315,7 +315,7 @@ def simulate(lines, port_id, best=False, logfile=None):
 
     if best:    
         best_sample = []
-        best_sample += lines[1:]
+        best_sample += lines
     
     # for token in approved_tokens:
     #     token_addr = token_contracts[token].address

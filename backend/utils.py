@@ -7,9 +7,10 @@ block_times = f'{data_path}/block_times.csv'
 token_names = f'{data_path}/token_names.csv'
 
 def get_price(block, token_addr,source='binance'):
+    token_addr = token_addr.lower()
     # TODO: find the token price in dollar terms
     if source=='binance':
-        if token_addr == 'eth':
+        if token_addr == 'eth' or token_addr == '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2':
             market = 'ETHUSDT'
         else:
             matched = subprocess.check_output(f'grep {token_addr.lower()} {token_names}', shell=True)
