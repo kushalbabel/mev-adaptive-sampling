@@ -1,6 +1,8 @@
+from unicodedata import decimal
 import requests
 import json
 import argparse
+import sys
 import logging
 from copy import deepcopy
 from contracts import utils
@@ -37,6 +39,7 @@ MINER_CAPITAL = 1000*1e18
 
 nonces = defaultdict(lambda: 0)
 prices = dict()
+decimals = dict()
 
 def query_block(block_number):
     data = {}
@@ -105,6 +108,18 @@ def fork(bno):
     response = json.loads(r.content)
     return response
 
+def get_decimals(token_addr):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_call'
+    function_selector = "0x313ce567000000000000000000000000"
+    calldata = function_selector
+    data["params"] = [{"to": token_addr, "data":calldata}, "latest"]
+    # now = datetime.now()
+    data['id'] = 1
+    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    response = json.loads(r.content)
+    return int(response["result"], 16)
 
 # in eth
 def get_mev():
@@ -118,7 +133,8 @@ def get_mev_usd(tokens):
     eth_balance = get_mev()
     ret += eth_balance * prices['eth']
     for token in tokens:
-        ret += get_token_balance(MINER_ADDRESS, token) * prices[token]
+        token_balance = get_token_balance(MINER_ADDRESS, token) / (10**decimals[token])
+        ret += token_balance* prices[token]
     return ret
 
 def get_transaction(tx_hash):
@@ -274,11 +290,14 @@ def simulate_tx(line, w3):
 # bootstrap_line : the first line of the problem
 def setup(bootstrap_line):
     bootstrap_line = bootstrap_line.strip()
-    global prices
+    global prices, decimals
     prices = dict()
+    decimals = dict()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     involved_tokens = bootstrap_line.split(',')[1:]
     prices['eth'] = get_price(bootstrap_block, 'eth')
+    for token in involved_tokens:
+        decimals[token] = get_decimals(token)
     for token in involved_tokens:
         prices[token] = get_price(bootstrap_block, token)
 

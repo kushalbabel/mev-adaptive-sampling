@@ -7,6 +7,7 @@ binance_prices_path = f'{data_path}/prices-binance/'
 block_times = f'{data_path}/block_times.csv'
 token_names = f'{data_path}/token_names.csv'
 
+
 def get_price(block, token_addr,source='binance'):
     token_addr = token_addr.lower()
     # TODO: find the token price in dollar terms
