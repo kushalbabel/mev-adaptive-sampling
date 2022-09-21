@@ -132,8 +132,10 @@ def get_mev_usd(tokens):
     ret = 0
     eth_balance = get_mev()
     ret += eth_balance * prices['eth']
+    #print(eth_balance)
     for token in tokens:
         token_balance = get_token_balance(MINER_ADDRESS, token) / (10**decimals[token])
+        #print(token_balance)
         ret += token_balance* prices[token]
     return ret
 
@@ -167,7 +169,7 @@ def parse_and_sign_basic_tx(elements, sender, w3):
         'value': value,
         'gas': 15000000,
         # 'gasPrice': 76778040978,
-        'maxFeePerGas': 146778040978,
+        'maxFeePerGas': 14677804097800,
         'maxPriorityFeePerGas':1000,
         'nonce': nonces[sender],
         'chainId': 1,
@@ -198,7 +200,7 @@ def parse_and_sign_contract_tx(elements, sender, w3):
         'data': calldata,
         'gas': 15000000,
         # 'gasPrice': 76778040978,
-        'maxFeePerGas': 146778040978,
+        'maxFeePerGas': 14677804097800,
         'maxPriorityFeePerGas':1000,
         'nonce': nonces[sender],
         'chainId': 1,
@@ -296,6 +298,7 @@ def setup(bootstrap_line):
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     involved_tokens = bootstrap_line.split(',')[1:]
     prices['eth'] = get_price(bootstrap_block, 'eth')
+    # print(prices['eth'])
     for token in involved_tokens:
         decimals[token] = get_decimals(token)
     for token in involved_tokens:
@@ -383,7 +386,7 @@ if __name__ == '__main__':
         '-p', '--port',
         help="Id of one of the many backend client",
         required=False,
-        default=-1
+        default=0
     )
 
 
