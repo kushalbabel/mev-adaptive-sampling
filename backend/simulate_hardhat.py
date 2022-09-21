@@ -345,22 +345,22 @@ def simulate(lines, port_id, best=False, logfile=None):
         best_sample = []
         best_sample += lines
     
-    # for token in approved_tokens:
-    #     token_addr = token_contracts[token].address
-    #     balance = None
-    #     debug_counter = 0
-    #     while balance is None:
-    #         try:
-    #             balance = get_token_balance(MINER_ADDRESS, token_addr)
-    #         except:
-    #             balance = None
-    #             debug_counter += 1
-    #             simlogger.debug("[COUNTER] %d", debug_counter)
-    #     automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr)
-    #     simulate_tx(automatic_tx, w3)
-    #     if best:
-    #         best_sample.append(automatic_tx)
-    # mine_block()
+    for token in approved_tokens:
+        token_addr = token_contracts[token].address
+        balance = None
+        debug_counter = 0
+        while balance is None:
+            try:
+                balance = get_token_balance(MINER_ADDRESS, token_addr)
+            except:
+                balance = None
+                debug_counter += 1
+                simlogger.debug("[COUNTER] %d", debug_counter)
+        automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr)
+        simulate_tx(automatic_tx, w3)
+        if best:
+            best_sample.append(automatic_tx)
+    mine_block()
 
     
     if best:
@@ -368,7 +368,7 @@ def simulate(lines, port_id, best=False, logfile=None):
             for tx in best_sample:
                 flog.write('{}\n'.format(tx.strip()))
 
-    return get_mev_cex(approved_tokens)
+    return get_mev()
 
 if __name__ == '__main__':
     
