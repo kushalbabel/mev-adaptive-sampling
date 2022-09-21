@@ -128,7 +128,7 @@ def get_mev():
     return mev/1e18
 
 # in eth
-def get_mev_usd(tokens):
+def get_mev_cex(tokens):
     ret = 0
     eth_balance = get_mev()
     ret += eth_balance * prices['eth']
@@ -137,6 +137,7 @@ def get_mev_usd(tokens):
         token_balance = get_token_balance(MINER_ADDRESS, token) / (10**decimals[token])
         #print(token_balance)
         ret += token_balance* prices[token]
+    ret = ret / prices['eth']
     return ret
 
 def get_transaction(tx_hash):
@@ -367,7 +368,7 @@ def simulate(lines, port_id, best=False, logfile=None):
             for tx in best_sample:
                 flog.write('{}\n'.format(tx.strip()))
 
-    return get_mev_usd(approved_tokens)
+    return get_mev_cex(approved_tokens)
 
 if __name__ == '__main__':
     
