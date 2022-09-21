@@ -334,7 +334,11 @@ def simulate(lines, port_id, best=False, logfile=None):
         if line.startswith('#'):
             continue
         simulate_tx(line, w3)
-    mine_block()
+    
+    mine_result = mine_block()
+    if 'error' in mine_result:
+        print(mine_result['error'])
+        return None
 
     if best:    
         best_sample = []
