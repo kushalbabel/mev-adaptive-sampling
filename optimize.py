@@ -11,10 +11,14 @@ import numpy as np
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 
+import sys
+sys.path.append('backend/')
+
 # from simulate import simulate
-from simulate_client import simulate
-# from simulate_foundry import simulate
+from simulate_client import simulate, setup
 from sampling_utils import Gaussian_sampler, RandomOrder_sampler
+
+
 
 VALID_RANGE = {'0x397ff1542f962076d0bfe58ea045ffa2d347aca0': 1e6,
                '0x795065dcc9f64b5614c407a6efdc400da6221fb0': 1e6}
@@ -258,6 +262,8 @@ def main(args, transaction, grid_search=False):
             evaluator = MEV_evaluator(transactions, params, domain_scales=domain_scales)
 
             if not grid_search:   # perform adaptive sampling to optimize alpha values
+                log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
+
                 sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=int(0.5*args.num_samples_gauss), 
                                             u_random_portion=args.u_random_portion_gauss, local_portion=args.local_portion, cross_portion=args.cross_portion, pair_selection_method=args.pair_selection)
 
@@ -266,11 +272,15 @@ def main(args, transaction, grid_search=False):
                 best_sample, best_mev = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples_gauss, n_iter=args.n_iter_gauss, minimize=False, 
                                                     alpha_max=args.alpha_max, early_stopping=args.early_stopping, save_path=args.save_path, 
                                                     n_parallel=args.n_parallel, plot_contour=args.plot_contour, executor=mp.Pool, param_names=params, verbose=True)
+                if best_sample is None:
+                    with open(os.path.join(args.save_path, log_file), 'a') as f:
+                        f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion==1.0 else problem_name))
+                        f.write(f'got None MEV, aborting optimization \n')
+                    return
+                
                 print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
                 print('maximum MEV:', best_mev)
-
-                log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
-                with open(log_file, 'a') as f:
+                with open(os.path.join(args.save_path, log_file), 'a') as f:
                     f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion_gauss==1.0 else problem_name))
                     f.write(f'max MEV: {best_mev} \n')
                     f.write('params: {} \n'.format({p_name: v for p_name, v in zip(params, best_sample)})) 
@@ -324,11 +334,15 @@ def main(args, transaction, grid_search=False):
                     print('maximum MEV:', scores[idx])
 
         else:
+            log_file = f'final_results_reorder_{eth_pair}.txt' if eth_pair is not None else 'final_results_reorder.txt'
+
             gt_order = get_groundtruth_order(transactions[1:], include_miner=True)
 
             n_reorders = math.factorial(len(transactions)-1)
             if n_reorders < args.num_samples:
                 args.num_samples = n_reorders
+
+            setup(transactions[0])
 
             sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
                                         p_swap_min=args.p_swap_min, p_swap_max=args.p_swap_max, 
@@ -344,7 +358,12 @@ def main(args, transaction, grid_search=False):
             best_order, best_mev, best_variables = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
                                                 alpha_max=args.alpha_max, early_stopping=10, save_path=args.save_path, 
                                                 n_parallel=args.n_parallel, plot_contour=False, executor=mp.Pool, param_names=None, verbose=True)
-            
+            if best_order is None:
+                with open(os.path.join(args.save_path, log_file), 'a') as f:
+                    f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion==1.0 else problem_name))
+                    f.write(f'got None MEV, aborting optimization \n')
+                return
+                    
             # check that the variable values are correct
             vars = list(best_variables.keys())
             if evaluator.use_repr:
@@ -358,17 +377,18 @@ def main(args, transaction, grid_search=False):
             print('=> optimal transaction order:', reorder(transactions, best_order))
             print('=> optimal variables:', best_variables)
             print('maximum MEV:', best_mev)
-
-            log_file = f'final_results_reorder_{eth_pair}.txt' if eth_pair is not None else 'final_results_reorder.txt'   
-            with open(log_file, 'a') as f:
+            with open(os.path.join(args.save_path, log_file), 'a') as f:
                 f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion==1.0 else problem_name))
                 f.write(f'max MEV: {best_mev} \n')
                 f.write('=> optimal transaction order: {} \n'.format(reorder(transactions, best_order)))
                 f.write(f'params: {best_variables} \n') 
     
     except:
-        log_file = f'final_results_reorder_{eth_pair}.txt' if eth_pair is not None else 'final_results_reorder.txt'   
-        with open(log_file, 'a') as f:
+        if args.reorder:
+            log_file = f'final_results_reorder_{eth_pair}.txt' if eth_pair is not None else 'final_results_reorder.txt'   
+        else:
+            log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
+        with open(os.path.join(args.save_path, log_file), 'a') as f:
             f.write('------------------- error occured when running {} \n'.format(problem_name + '_random' if args.u_random_portion_gauss==1.0 else problem_name))
         
 if __name__ == '__main__':

@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
     flashbots_data = None
     if args.flashbots:
-        path_to_flashbots = '/home/kb742/mev-adaptive-sampling/flashbots_baseline.csv'
+        path_to_flashbots = '/home/kb742/mev-adaptive-sampling/data/flashbots_baseline.csv'
         flashbots_data = pd.read_csv(path_to_flashbots)
         patterns.append('flashbots')
     
@@ -72,7 +72,8 @@ if __name__ == '__main__':
     #     best_scores.append(scores_to_keep)
 
     #------ find common experiment names
-    common_keys = list(best_scores[0].keys())
+    common_keys = [str(i) for i in [13179381, 13525407, 13262636, 13420743, 13519520, 13539852, 13539877, 13501761, 13526069, 13406200, 13022130, 13529335, 13504619, 13450855, 13076476, 13285119, 13103508, 13235453, 13115319, 13534463, 13119385, 13450863, 13236404, 13457441, 13179367, 13142903, 13238591, 13119472, 13486527, 13121478, 13491910, 13389694, 13377448, 13450892, 13184922, 13536521, 13185021, 13118320, 13323340, 13359998, 13075089, 13450883]]
+    # common_keys = list(best_scores[0].keys())
     for i in range(1, len(best_scores)):
         common_keys = np.intersect1d(common_keys, list(best_scores[i].keys()))
     print('problem names:', common_keys)
@@ -110,20 +111,26 @@ if __name__ == '__main__':
     plt.ylabel('MEV')
     plt.savefig(os.path.join(path_to_save, 'baseline_mev_{}.png'.format('reorder' if args.reorder else 'alpha')), bbox_inches='tight')
 
-    best_scores.pop(-1) #remove flashbots logs
+    # best_scores.pop(-1) #remove flashbots logs
     #------ plot the percentage mev per sample count plots
     status = []
     count = 0
     for k in common_keys:
         s = best_scores[0][k]
 
-        max_score = np.max(np.concatenate([best_scores[i][k] for i in range(len(best_scores))], axis=0))
-        max_score_nonrandom = np.max(np.concatenate([best_scores[i][k] for i in range(len(best_scores)) if i!=idx_random], axis=0)) if idx_random is not None else max_score
-        # if max_score != max_score_nonrandom:
-        #     continue
-        if max_score == max_score_nonrandom:
+        curr_scores = []
+        for i in range(len(best_scores)):
+            v = best_scores[i][k]
+            if isinstance(v, list):
+                curr_scores += v
+            else:
+                curr_scores += [v]
+            
+        max_score = np.max(curr_scores)
+        max_score_ours = np.max(best_scores[0][k])
+        if max_score == max_score_ours:
             count += 1
-    
+        
         n_iter = int(re.search('([0-9]+)iter', patterns[0]).group(1))
         s = np.expand_dims(np.pad(s, (0, n_iter-len(s)), mode='edge')/max_score, axis=0)
         try:
@@ -131,7 +138,7 @@ if __name__ == '__main__':
         except:
             status.append(s)
 
-        for i in range(1, len(best_scores)):
+        for i in range(1, len(best_scores[:-1])):
             n_iter = int(re.search('([0-9]+)iter', patterns[i]).group(1))
             s_ = np.expand_dims(np.pad(best_scores[i][k], (0, n_iter-len(best_scores[i][k])), mode='edge')/max_score, axis=0)
             try:
@@ -141,6 +148,7 @@ if __name__ == '__main__':
 
     print(f'found {count} problems where adaptive sampling works better')
 
+    best_scores.pop(-1) #remove flashbots logs
     plt.clf()
     for i in range(len(best_scores)):
         plt.plot(x_axis[i], np.mean(status[i], axis=0)*100., label=patterns[i])

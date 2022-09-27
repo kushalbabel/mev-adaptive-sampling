@@ -322,6 +322,13 @@ class AdaNS_sampler(object):
                 #                                 (i+1)*n_parallel, num_samples))    
             runtime_simulation.update(time.time()-t1)
 
+            # check whether the MEV is None for the entire batch
+            if np.sum(np.isnan(np.asarray(scores))) > 0:
+                if len(subsamples)>0:
+                    return None, None, None
+                else:
+                    return None
+
             subsamples = None if len(subsamples) == 0 else subsamples 
             self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max, subsamples=subsamples)
 
