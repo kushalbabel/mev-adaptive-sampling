@@ -22,6 +22,7 @@ simlogger.setLevel(logging.DEBUG)
 simlogger.propagate = False
 
 LARGE_NEGATIVE = -1e9
+BLOCKREWARD = 2
 FORK_URL = 'http://localhost:8547'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
@@ -128,16 +129,15 @@ def get_mev():
     return mev/1e18
 
 # in eth
-def get_mev_cex(tokens):
+def get_mev_cex(remaining_balances):
     ret = 0
     eth_balance = get_mev()
-    ret += eth_balance * prices['eth']
+    ret += eth_balance
     #print(eth_balance)
-    for token in tokens:
-        token_balance = get_token_balance(MINER_ADDRESS, token) / (10**decimals[token])
+    for token in remaining_balances:
+        token_balance = remaining_balances[token] / (10**decimals[token])
         #print(token_balance)
-        ret += token_balance* prices[token]
-    ret = ret / prices['eth']
+        ret += token_balance* prices[token] / prices['eth']
     return ret
 
 def get_transaction(tx_hash):
@@ -294,10 +294,15 @@ def simulate_tx(line, w3):
 def setup(bootstrap_line):
     bootstrap_line = bootstrap_line.strip()
     global prices, decimals
+    w3 = Web3(Web3.HTTPProvider(ARCHIVE_NODE_URL))
+    approved_tokens = bootstrap_line.split(',')[1:]
+    for token in approved_tokens:
+        if token.startswith('0x'):
+            token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
     prices = dict()
     decimals = dict()
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
-    involved_tokens = bootstrap_line.split(',')[1:]
+    involved_tokens = approved_tokens
     prices['eth'] = get_price(bootstrap_block, 'eth')
     # print(prices['eth'])
     for token in involved_tokens:
@@ -306,7 +311,7 @@ def setup(bootstrap_line):
         prices[token] = get_price(bootstrap_block, token)
 
 
-def simulate(lines, port_id, best=False, logfile=None):
+def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     global nonces, FORK_URL
     FORK_URL = 'http://localhost:{}'.format(8547+port_id)
     w3 = Web3(Web3.HTTPProvider(FORK_URL))
@@ -314,37 +319,34 @@ def simulate(lines, port_id, best=False, logfile=None):
     bootstrap_line = lines[0].strip()
     simlogger.debug("[ %s ]", bootstrap_line)
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
-
-    fork(bootstrap_block)
-    for address in KEYS:    
-        set_balance(address, int(MINER_CAPITAL))
-    # set_balance(MINER_ADDRESS, int(MINER_CAPITAL))
-    set_miner(MINER_ADDRESS)
-
     approved_tokens = bootstrap_line.split(',')[1:]
-    for token in approved_tokens:
-        if token.startswith('0x'):
-            token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
     
+
+    # Prepare state
+    fork(bootstrap_block)
+    for address in KEYS:
+        set_balance(address, int(MINER_CAPITAL))
+    set_miner(MINER_ADDRESS)
+    
+    # Preparation transactions
     for token in approved_tokens:
-        # simulate_tx('1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)) #1e27
         approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
         simulate_tx(approve_tx, w3) #1e27
     
+    # Execute transactions
     for line in lines[1:]:
         if line.startswith('#'):
             continue
         simulate_tx(line, w3)
     
+    # Mine the transactions
     mine_result = mine_block()
     if 'error' in mine_result:
         print(mine_result['error'])
         return None
 
-    if best:    
-        best_sample = []
-        best_sample += lines
-    
+    # get remaining balances
+    remaining_balances = {}
     for token in approved_tokens:
         token_addr = token_contracts[token].address
         balance = None
@@ -356,19 +358,36 @@ def simulate(lines, port_id, best=False, logfile=None):
                 balance = None
                 debug_counter += 1
                 simlogger.debug("[COUNTER] %d", debug_counter)
-        automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(balance, token_addr)
-        simulate_tx(automatic_tx, w3)
-        if best:
-            best_sample.append(automatic_tx)
-    mine_block()
+        remaining_balances[token_addr] = balance
 
-    
+    mev = 0
+
+    if settlement == 'cex' or settlement == 'max':
+        # view only calculation
+        try:
+            mev = max(mev, BLOCKREWARD + get_mev_cex(remaining_balances))
+        except KeyError:
+            simlogger.debug("Not listed on binance")
+    if settlement == 'dex' or settlement == 'max':
+        # settle on dex, calculation changes STATE!!
+        for token_addr in remaining_balances:
+            automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balances[token_addr], token_addr)
+            simulate_tx(automatic_tx, w3)
+        # mine the block to execute automatic_tx
+        mine_block()
+        mev = max(mev, get_mev())
+
+    # store the best sample
     if best:
+        best_sample = []
+        best_sample += lines
+        for token_addr in remaining_balances:
+            best_sample.append('#balance {}:{},{}'.format(token_addr, remaining_balances[token_addr]/(10**decimals[token_addr]),decimals[token_addr]))
         with open(logfile, 'w') as flog:
             for tx in best_sample:
                 flog.write('{}\n'.format(tx.strip()))
 
-    return get_mev()
+    return mev
 
 if __name__ == '__main__':
     
@@ -394,6 +413,12 @@ if __name__ == '__main__':
         default=0
     )
 
+    parser.add_argument(
+        '-s', '--settlement',
+        help="cex/dex/max",
+        required=False,
+        default='max'
+    )
 
     args = parser.parse_args()
     
@@ -403,5 +428,5 @@ if __name__ == '__main__':
     print("setting up...", lines[0])
     setup(lines[0])
     print("simulating...")
-    mev = simulate(lines, port_id, True, 'temp')
+    mev = simulate(lines, port_id, True, 'temp', args.settlement)
     print(mev)
