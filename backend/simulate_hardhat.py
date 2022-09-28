@@ -307,8 +307,11 @@ def setup(bootstrap_line):
     # print(prices['eth'])
     for token in involved_tokens:
         decimals[token] = get_decimals(token)
-    for token in involved_tokens:
-        prices[token] = get_price(bootstrap_block, token)
+    try:
+        for token in involved_tokens:
+            prices[token] = get_price(bootstrap_block, token)
+    except:
+        pass
 
 
 def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
@@ -342,7 +345,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     # Mine the transactions
     mine_result = mine_block()
     if 'error' in mine_result:
-        print(mine_result['error'])
+        simlogger.debug(mine_result['error'])
         return None
 
     # get remaining balances
@@ -365,7 +368,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     if settlement == 'cex' or settlement == 'max':
         # view only calculation
         try:
-            mev = max(mev, BLOCKREWARD + get_mev_cex(remaining_balances))
+            mev = max(mev, BLOCKREWARD + get_mev_cex(remaining_balances))  # blockreward for parity with dex
         except KeyError:
             simlogger.debug("Not listed on binance")
     if settlement == 'dex' or settlement == 'max':
