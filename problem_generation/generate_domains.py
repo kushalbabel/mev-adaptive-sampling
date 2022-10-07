@@ -4,12 +4,12 @@ import json
 import os
 
 
-dir = 'eth_token_tests'
+dir = '../eth_token_tests_uniswapv2'
 NODE_URL = 'http://localhost:8545'
 w3 = Web3(Web3.HTTPProvider(NODE_URL))
 
-pair_abi = json.loads(open('contracts/uniswapv2pair_abi.json','r').read())
-erc20_abi = json.loads(open('contracts/erc20_abi.json','r').read())
+pair_abi = json.loads(open('abi/uniswapv2pair_abi.json','r').read())
+erc20_abi = json.loads(open('abi/erc20_abi.json','r').read())
 weth = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
 
 for filename in glob.glob(dir+'/*'):

@@ -58,6 +58,7 @@ def query_block(block_number):
     data['id'] = block_number + 1000000
     r = requests.post(ARCHIVE_NODE_URL, json=data)
     response = json.loads(r.content)
+    # print(response)
     return response
 
 args = parser.parse_args()
@@ -77,25 +78,28 @@ for line in lines:
         block_to_tx[block_num].add(transaction_hash)
 
 
-reserves = pd.read_csv("../mev/data-scripts/latest-data/sushiswap-reserves.csv")
-eth = "1097077688018008265106216665536940668749033598146"
-address = args.file.split("/")[-1].rstrip(".csv")
-pair_info = reserves[reserves.Address == address]
-token0 = pair_info.iloc[0].Token0
-token1 = pair_info.iloc[0].Token1
+
+pair_data = pd.read_csv("/data/latest-data/uniswapv2_pairs.csv")
+address = args.file.split("/")[-1][:-4]
+pair_info = pair_data[pair_data.pair == address]
+token0 = pair_info.iloc[0].token0
+token1 = pair_info.iloc[0].token1
 token = token0
+eth = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 if token0 == eth:
     token = token1
-token = hex(int(token))[2:].zfill(40)
+# token = hex(int(token))[2:].zfill(40) # remove else causes confusion
 token_hex = Web3.toChecksumAddress(token)
+
+# print(token_hex)
 
 # swap_template1 = '1,miner,UniswapV2Router02,{},swapExactETHForTokens,\
 # 0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48],miner,1800000000'.format('alpha1')
 # swap_template2 = '1,miner,UniswapV2Router02,0,swapExactTokensForETH,\
 # {},0,[0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2')
-swap_template1 = '1,miner,SushiswapRouter,{},swapExactETHForTokens,\
+swap_template1 = '1,miner,UniswapV2Router,{},swapExactETHForTokens,\
 0,[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2-{}],miner,1800000000'.format('alpha1', token_hex)
-swap_template2 = '1,miner,SushiswapRouter,0,swapExactTokensForETH,\
+swap_template2 = '1,miner,UniswapV2Router,0,swapExactTokensForETH,\
 {},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format('alpha2', token_hex)
 
 # addition_template = '1,Miner,alpha3,eth,alpha4,usdc'
@@ -116,6 +120,8 @@ for block in block_to_tx:
     necessary_transactions = block_to_tx[block]
     interacting_addresses = set()
     complete_block = query_block(block)
+    if complete_block is None:
+        print(filename1)
     complete_output = ''
     reduced_output = ''
     all_transactions = complete_block['result']['transactions']

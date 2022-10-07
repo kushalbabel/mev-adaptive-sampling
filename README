@@ -7,3 +7,7 @@ If you want to run simulation standalone, sample command:
 To check if a client is stuck:
 `cd simulation`
 `bash ping_hardhats.sh`
+
+Info about problem generation:
+eth_token_tests -> Sushiswap problems
+eth_token_tests_uniswapv2 -> UniswapV2 problems

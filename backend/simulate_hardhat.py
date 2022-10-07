@@ -187,7 +187,7 @@ def parse_and_sign_contract_tx(elements, sender, w3):
     func_name = elements[3]
     params = elements[4:]
     # clean up and make the to_addr uniformly handled
-    if to_address == 'UniswapV2Router02':
+    if to_address == 'UniswapV2Router':
         contract = uniswap_router_contract
     elif to_address == 'SushiswapRouter':
         contract = sushiswap_router_contract
@@ -413,7 +413,7 @@ if __name__ == '__main__':
         '-p', '--port',
         help="Id of one of the many backend client",
         required=False,
-        default=0
+        default=-1
     )
 
     parser.add_argument(
