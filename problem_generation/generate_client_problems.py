@@ -120,8 +120,9 @@ for block in block_to_tx:
     necessary_transactions = block_to_tx[block]
     interacting_addresses = set()
     complete_block = query_block(block)
-    if complete_block is None:
+    if complete_block is None or complete_block['result'] is None:
         print(filename1)
+        continue
     complete_output = ''
     reduced_output = ''
     all_transactions = complete_block['result']['transactions']
