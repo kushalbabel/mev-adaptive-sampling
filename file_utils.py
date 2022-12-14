@@ -72,20 +72,24 @@ def gather_results(path, pattern):
 
     paths = gather_result_paths(path, pattern)
 
-    results = {}
+    results, eth_pairs = {}, {}
     for p in paths:
         with open(p, 'rb') as f:
             info = pickle.load(f)
-        problem_name = p.split('/')[-3] #re.search('(problem_[0-9]+)', p).group(1)
+        eth_pair_idx = re.search('(0x[a-z0-9]+)', p).span()[1]
+        eth_pair = re.search('(0x[a-z0-9]+)', p).group(1)
+        problem_name = p[eth_pair_idx:].split('/')[1]
         if problem_name in results.keys():
             print(f'============== found duplicate problem name {problem_name}')
             if np.max(info['best_scores']) > np.max(results[problem_name]):
                 results[problem_name] = info['best_scores'].tolist()
                 print('==== replacing')
+                eth_pairs[problem_name] = eth_pair
         else:
             results[problem_name] = info['best_scores'].tolist()
+            eth_pairs[problem_name] = eth_pair
 
-    return results
+    return results, eth_pairs
 
 def dump_csvs(path, testset, pattern):
     best_scores = gather_results(os.path.join(path, testset), pattern)
