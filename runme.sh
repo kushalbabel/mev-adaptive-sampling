@@ -7,9 +7,13 @@
 # python optimize.py -t $TRANSACTIONS -d $DOMAIN --reorder --n_iter 30 --num_samples 20 --u_random_portion 1. --parents_portion 0. --early_stopping 1000
 
 # TRANSACTIONS='/home/kb742/mev-adaptive-sampling/eth_token_tests/0x397ff1542f962076d0bfe58ea045ffa2d347aca0/13076406'  # example problem which finds a new technique
-TRANSACTIONS='/home/kb742/mev-adaptive-sampling/eth_token_tests/0x795065dcc9f64b5614c407a6efdc400da6221fb0/13179357'
-DOMAIN='/home/kb742/mev-adaptive-sampling/eth_token_tests/0x795065dcc9f64b5614c407a6efdc400da6221fb0/domain'
+# TRANSACTIONS='/home/kb742/mev-adaptive-sampling/eth_token_tests/0x795065dcc9f64b5614c407a6efdc400da6221fb0/13179357'
+# TRANSACTIONS='/home/kb742/mev-adaptive-sampling/eth_token_tests/0x397ff1542f962076d0bfe58ea045ffa2d347aca0/13183467'
+# DOMAIN='/home/kb742/mev-adaptive-sampling/eth_token_tests/0x397ff1542f962076d0bfe58ea045ffa2d347aca0/domain'
+TRANSACTIONS='/home/kb742/mev-adaptive-sampling/eth_token_tests_uniswapv2/0x819f3450da6f110ba6ea52195b3beafa246062de/13795320'
+DOMAIN='/home/kb742/mev-adaptive-sampling/eth_token_tests_uniswapv2/0x819f3450da6f110ba6ea52195b3beafa246062de/domain'
 # python optimize.py -t $TRANSACTIONS -d $DOMAIN --u_random_portion_gauss 1.0 --local_portion 0.0 --cross_portion 0.0 --num_samples_gauss 120
-# python optimize.py -t $TRANSACTIONS -d $DOMAIN --u_random_portion_gauss 0.5 --local_portion 0.25 --cross_portion 0.25 --early_stopping 1000
-python optimize.py -t $TRANSACTIONS -d $DOMAIN --reorder --n_iter 5 --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 44
+# python optimize.py -t $TRANSACTIONS -d $DOMAIN --num_samples_gauss 44
+# python optimize.py -t $TRANSACTIONS -d $DOMAIN --reorder --n_iter 5 --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 44
 # python optimize.py -t $TRANSACTIONS -d $DOMAIN --reorder --n_iter 5 --num_samples 10 --u_random_portion 1. --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 44 --early_stopping 1000
+python optimize.py -t $TRANSACTIONS -d $DOMAIN --reorder --SA --n_iter 50 --num_samples 1

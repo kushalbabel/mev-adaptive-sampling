@@ -32,6 +32,7 @@ ENHANCEMENTS, OR MODIFICATIONS.
 """
 
 import os
+import re
 import time
 import random
 import copy
@@ -90,6 +91,7 @@ class AdaNS_sampler(object):
     def __init__(self, boundaries, minimum_num_good_samples):
         # minimum number of good samples (b) used to find the value of \alpha for each iteration
         self.minimum_num_good_samples = minimum_num_good_samples
+        assert self.minimum_num_good_samples>0, "minimum number of good samples must be greater than zero"
         
         # shape of boundaries: <d, 2>. Specifies the minimum and maximum allowed value of the hyperparameter per dimension.
         self.boundaries = boundaries
@@ -152,7 +154,6 @@ class AdaNS_sampler(object):
                 sorted_args = np.argsort(self.all_scores)[::-1]
                 indices = sorted_args[:self.minimum_num_good_samples]
                 self.good_samples[indices] = True
-                assert np.sum(self.good_samples)==self.minimum_num_good_samples, (np.sum(self.good_samples), self.minimum_num_good_samples)
 
             else:
                 itr = 0
@@ -169,7 +170,11 @@ class AdaNS_sampler(object):
                     sorted_args = np.argsort(self.all_scores)[::-1]
                     alpha_t = self.all_scores[sorted_args[self.minimum_num_good_samples-1]] / self.all_scores[sorted_args[0]]
                     self.update_good_samples(alpha_t)
+                    # indices = sorted_args[:self.minimum_num_good_samples]
+                    # self.good_samples[indices] = True
+                    # alpha_t = alpha_max
             
+            assert np.sum(self.good_samples)>=self.minimum_num_good_samples, print(np.sum(self.good_samples), self.minimum_num_good_samples)
             if verbose:
                 print('changing alpha_t to %0.2f' % (alpha_t))
             self.alpha_t = alpha_t
@@ -177,7 +182,7 @@ class AdaNS_sampler(object):
         return self.alpha_t
     
 
-    def update(self, samples, scores, alpha_max, subsamples=None, **kwargs):    
+    def update(self, samples, scores, alpha_max, subsamples=None, save_path=None, **kwargs):    
         '''
         function to add newly evaluated samples to the history
             - samples: new samples
@@ -196,6 +201,17 @@ class AdaNS_sampler(object):
         if subsamples is not None:
             self.all_subsamples += subsamples
             self.all_subsamples = (np.asarray(self.all_subsamples)[indices]).tolist()
+
+            path_to_subsamples = [f.path for f in os.scandir(save_path) if f.is_dir()]
+            for f in os.listdir(path_to_subsamples[0]):
+                exp_idx = int(re.search('history_info_([0-9]+)', f).group(1))
+                if exp_idx not in indices:
+                    print('deleting', f)
+                    os.remove(os.path.join(path_to_subsamples[0], f))
+            for i, idx in enumerate(indices):        
+                os.rename(os.path.join(path_to_subsamples[0], f'history_info_{idx}.pkl'), os.path.join(path_to_subsamples[0], f'history_info_{i}_.pkl')) 
+            for i in range(len(indices)):
+                os.rename(os.path.join(path_to_subsamples[0], f'history_info_{i}_.pkl'), os.path.join(path_to_subsamples[0], f'history_info_{i}.pkl'))         
 
         self.update_good_samples(alpha_max)
 
@@ -323,18 +339,24 @@ class AdaNS_sampler(object):
             runtime_simulation.update(time.time()-t1)
 
             # check whether the MEV is None for the entire batch
-            if np.sum(np.isnan(np.asarray(scores))) > 0:
-                if len(subsamples)>0:
-                    return None, None, None
-                else:
-                    return None
+            if np.sum(np.asarray(scores)==0) == len(scores) and len(subsamples)>0:
+                return None, None, None
+            count = 0
+            for i, s in enumerate(scores):
+                if np.isnan(s):
+                    scores[i] = 0
+                    count += 1
+            if count > 0:
+                print(f'============ converted {count}/{len(scores)} Nan score values to 0')
+            assert np.sum(np.isnan(np.asarray(scores, dtype=float)))==0, np.sum(np.isnan(np.asarray(scores, dtype=float)))
 
             subsamples = None if len(subsamples) == 0 else subsamples 
-            self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max, subsamples=subsamples)
+            self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max, subsamples=subsamples, save_path=save_path)
 
             # modify \alpha if necessary, to make sure there are enough "good" samples
             alpha = self.configure_alpha(alpha_max, verbose=verbose)
             alpha_vals.append(alpha)
+            assert np.sum(self.good_samples) > 0, 'no good samples were found'
 
             # optionally visualize the current samples on the search-space
             if contour is not None:
@@ -356,6 +378,7 @@ class AdaNS_sampler(object):
             best_samples.append(self.all_samples[id_best])
             if subsamples is not None:
                 best_subsamples.append(self.all_subsamples[id_best])
+                id_to_keep = id_best
             
             runtime_total.update(time.time()-t0)
             if verbose:
@@ -372,33 +395,48 @@ class AdaNS_sampler(object):
                 'all_samples': self.all_samples,
                 'all_scores': self.all_scores,
                 'good_samples':self.good_samples}
+        
+        id_best_overall = np.argmax(best_scores)
+        best_sample_overall = best_samples[id_best_overall]
 
         if len(self.all_subsamples)>0:
             info['all_subsamples'] = self.all_subsamples
             info['best_subsamples'] = np.asarray(best_subsamples)
 
-        path_to_info = os.path.join(save_path, 'history_info.pkl')
-        with open(path_to_info, 'wb') as f:
-            pickle.dump(info, f)
+            with open(os.path.join(save_path, f'history_info.pkl'), 'wb') as f:
+                pickle.dump(info, f)
 
-        id_best_overall = np.argmax(best_scores)
-        best_sample_overall = best_samples[id_best_overall]
+            # input("Press Enter to continue...")
+            path_to_subsamples = [f.path for f in os.scandir(save_path) if f.is_dir()]
+            for f in os.listdir(path_to_subsamples[0]):
+                exp_idx = int(re.search('history_info_([0-9]+)', f).group(1))
+                if exp_idx == id_to_keep:
+                    os.rename(os.path.join(path_to_subsamples[0], f), os.path.join(path_to_subsamples[0], 'history_info.pkl'))
+                else:
+                    os.remove(os.path.join(path_to_subsamples[0], f))
+        else:
+            exp_idx = 0
+            while os.path.exists(os.path.join(save_path, f'history_info_{exp_idx}.pkl')):
+                exp_idx += 1
+            with open(os.path.join(save_path, f'history_info_{exp_idx}.pkl'), 'wb') as f:
+                pickle.dump(info, f)
 
         if contour is not None:
-                plt.figure()
-                plt.contourf(contour[0], contour[1], contour[-1])
-                plt.colorbar()
-                plt.scatter(best_sample_overall[0], best_sample_overall[1], c='r', marker='*', s=100)
-                # plt.xlim(self.boundaries[0,:])
-                # plt.ylim(self.boundaries[1,:])
-                if param_names is not None:
-                    plt.xlabel(param_names[0])
-                    plt.ylabel(param_names[1])
-                plt.savefig(os.path.join(path_to_contour, 'score_contour_final.png'))
-                plt.close()
+            plt.figure()
+            plt.contourf(contour[0], contour[1], contour[-1])
+            plt.colorbar()
+            plt.scatter(best_sample_overall[0], best_sample_overall[1], c='r', marker='*', s=100)
+            # plt.xlim(self.boundaries[0,:])
+            # plt.ylim(self.boundaries[1,:])
+            if param_names is not None:
+                plt.xlabel(param_names[0])
+                plt.ylabel(param_names[1])
+            plt.savefig(os.path.join(path_to_contour, 'score_contour_final.png'))
+            plt.close()
 
         if len(self.all_subsamples)>0:
             return best_sample_overall, best_scores[id_best_overall], best_subsamples[id_best_overall]
+        
         else:
             return best_sample_overall, best_scores[id_best_overall]
 
@@ -655,7 +693,7 @@ class Gaussian_sampler(AdaNS_sampler):
         return sample_vectors, origins
 
 
-    def update(self, samples, scores, origins, alpha_max, subsamples=None):    
+    def update(self, samples, scores, origins, alpha_max, subsamples=None, save_path=None):    
         '''
         function to add newly evaluated samples to the history
             - samples: new samples
@@ -663,7 +701,7 @@ class Gaussian_sampler(AdaNS_sampler):
             - origins: origin of new samples (zoom, genetic, gaussian-local, gaussian-cross, uniform-random)
             - alpha_max: current \alpha_max
         ''' 
-        super(Gaussian_sampler, self).update(samples, scores, alpha_max, subsamples)
+        super(Gaussian_sampler, self).update(samples, scores, alpha_max, subsamples, save_path=save_path)
         self.origins += origins  
     
 
@@ -1355,3 +1393,326 @@ class RandomOrder_sampler(AdaNS_sampler):
         assert randorder_samples.shape[0] == num_samples_orig, f'took {randorder_samples.shape[0]} samples but should be {num_samples_orig}'
 
         return randorder_samples, origins
+
+
+class SA_sampler(object):
+    def __init__(self, evaluator, length, groundtruth_order=None):
+        self.evaluator = evaluator # score function
+
+        boundaries = [[0, length]] * length
+        self.boundaries = boundaries
+        self.dimensions = len(boundaries)
+        
+        self.all_samples = np.zeros((0, self.dimensions))
+        self.all_scores = np.zeros(0)
+        self.all_subsamples = []
+        
+        self.good_samples = np.zeros(0)
+        
+        # maximum score through all iterations seen so far
+        self.max_score = -np.Infinity
+        self.length = length 
+    
+        self.groundtruth_order = groundtruth_order
+        self.create_order_respresentation()
+
+        self.mev_effects = None 
+
+        self.activate_early_stopping = False
+
+    
+    def set_MEV_effects(self, mev_effects):
+        self.mev_effects = mev_effects # dict showing how much moving each transaction affects the MEV (with random alphas)
+    
+    
+    def create_order_respresentation(self):
+        self.order_repr = []
+        for k, v in self.groundtruth_order.items():
+            self.order_repr += [k] * len(v)
+        # print('order representation:', self.order_repr)
+    
+    
+    def get_score(self, sample):
+        output = self.evaluator(sample, port_id=0)
+        if isinstance(output, tuple):
+            score = output[0]
+            subsample = output[1]
+        else:
+            score = output
+            subsample = None
+        
+        return score, subsample
+    
+    
+    def sample_uniform(self, num_samples=1):
+        '''
+        function to sample unifromly from all the search-space
+            - num_samples: number of samples to take
+        '''
+        def perm_generator(seq):
+            seen = set()
+            length = len(seq)
+            while True:
+                perm = tuple(random.sample(seq, length))
+                if perm not in seen:
+                    seen.add(perm)
+                    yield perm
+
+        if num_samples>0:
+            rand_perms = perm_generator(self.order_repr)
+            sample_vectors = np.asarray([next(rand_perms) for _ in range(num_samples)])
+            assert len(np.unique(sample_vectors, axis=0)) == num_samples
+        else:
+            sample_vectors = np.zeros((0, self.dimensions))
+        
+        scores = np.zeros(len(sample_vectors))
+        subsamples = []
+        for i, s in enumerate(sample_vectors):
+            scores[i], subsample = self.get_score(s)
+            if subsample is not None:
+                subsamples.append(subsample)
+        return sample_vectors, scores, subsamples
+    
+    
+    def get_neighbors(self, sample):
+        neighbors = []
+        for idx in range(len(sample)):
+            if idx+1 < len(sample):
+                if sample[idx+1] == sample[idx]:
+                    continue
+                new_sample = copy.deepcopy(sample)
+                new_sample[idx], new_sample[idx+1] = new_sample[idx+1], new_sample[idx]
+                neighbors.append(new_sample)
+        # print('original sample:', sample)
+        # print('neighbors:', neighbors)
+        return neighbors
+    
+    
+    def swap_adjacent_neighbors(self, sample, p_swap):
+        '''
+        function to swap the order in the sample
+        '''
+        n_swaps = max(1, int(p_swap * len(sample)))
+        #--------------- do swap
+        new_sample = copy.deepcopy(sample)
+        for _ in range(n_swaps):
+            neighbors = self.get_neighbors(new_sample)
+            new_sample = random.choice(neighbors)
+            # print('new_sample:', new_sample)
+
+        return new_sample
+
+    
+    def swap_random(self, sample, p_swap):
+        '''
+        function to swap the order in the sample
+        '''
+        n_swaps = max(1, int(p_swap * len(sample)))
+        #--------------- do swap
+        new_sample = copy.deepcopy(sample)
+        for _ in range(n_swaps):
+            # create probability dist based on mev_effects
+            assert self.mev_effects is not None
+            mev_effects = copy.deepcopy(self.mev_effects)
+            probs = []
+            for s in new_sample:
+                probs.append(mev_effects[s].pop(0))
+            assert np.sum(probs) > 0
+            probs = np.asarray(probs) / np.sum(probs)
+
+            idx_1 = np.random.choice(self.length, size=1, p=probs)
+            idx_2 = idx_1
+            while idx_2 == idx_1:
+                idx_2 = np.random.randint(0, self.length, size=1)
+            # idx_1, idx_2 = np.random.randint(0, self.length, size=2) 
+            new_sample[idx_1], new_sample[idx_2] = new_sample[idx_2], new_sample[idx_1]
+
+        return new_sample
+    
+    
+    def find_duplicate(self, sample):
+        return np.any((self.all_samples == sample).all(-1))
+    
+    
+    def update(self, samples, scores, subsamples=None, **kwargs):    
+        '''
+        function to add newly evaluated samples to the history
+            - samples: new samples
+            - scores: evaluation score of new samples
+        '''   
+        self.all_samples = np.concatenate((self.all_samples, samples), axis=0)
+        self.all_scores = np.concatenate((self.all_scores, scores), axis=0)
+        assert len(self.all_samples) == len(self.all_scores)
+
+        if len(subsamples) > 0:
+            self.all_subsamples += subsamples
+
+
+    def run_sampling(self, num_samples=1, n_iter=1000, early_stopping=np.Infinity, save_path='./sampling', param_names=None, verbose=False):
+        '''
+        Function to maximize given black-box function and save results to ./sampling/
+            - num_samples: number of samples to take at each iteration
+            - n_iter: total number of sampling rounds
+            - minimize: if set to True, the objective function will be minimized, otherwise maximized
+            - early_stopping: the sampling loop will terminate after this many iterations without improvmenet
+            - save_path: path to save the sampling history and other artifcats
+        returns: optimal hyperparameters
+        '''
+        # set up logging directory
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
+
+        # apply the sampling algorithm
+        best_samples = []
+        best_scores = []
+        best_subsamples = []
+        num_not_improve = 0
+
+        runtime_total = AverageMeter('Time', ':6.3f')
+        for iteration in range(n_iter):
+            t0 = time.time()
+            if iteration==0:
+                samples, scores, subsamples = self.sample_uniform(num_samples)
+                prev_max_score = self.max_score
+                
+            else:
+                max_score_improv = self.max_score - prev_max_score
+                prev_max_score = self.max_score
+
+                prev_samples, prev_scores, prev_subsamples = self.all_samples[-num_samples:], self.all_scores[-num_samples:], self.all_subsamples[-num_samples:]
+                samples, scores, subsamples = self.run_SA(prev_samples, prev_scores, prev_subsamples, iteration, a=0.995, T0=5, 
+                                                            T_update_freq=5, swap_method='random')
+
+                # if the percentage improvement in the maximum score is smaller than 0.1%, activate early stopping
+                if max_score_improv == 0: #(max_score_improv/prev_max_score) < 0.001:
+                    num_not_improve += 1 
+                else:
+                    num_not_improve = 0
+
+            # check whether the MEV is None for the entire batch
+            if np.sum(np.asarray(scores)==0) == len(scores) and len(subsamples)>0:
+                return None, None, None
+            count = 0
+            for i, s in enumerate(scores):
+                if np.isnan(s):
+                    scores[i] = 0
+                    count += 1
+            if count > 0:
+                print(f'============ converted {count}/{len(scores)} Nan score values to 0')
+            assert np.sum(np.isnan(np.asarray(scores, dtype=float)))==0, np.sum(np.isnan(np.asarray(scores, dtype=float)))
+
+            subsamples = None if len(subsamples) == 0 else subsamples 
+            self.update(samples=samples, scores=scores, subsamples=subsamples)
+
+            # book-keeping
+            id_best = np.argmax(self.all_scores)
+            self.max_score = self.all_scores[id_best]
+            self.best_sample = self.all_samples[id_best]
+
+            best_scores.append(self.max_score)
+            best_samples.append(self.best_sample)
+            if subsamples is not None:
+                best_subsamples.append(self.all_subsamples[id_best])
+                id_to_keep = id_best
+            
+            runtime_total.update(time.time()-t0)
+            if verbose:
+                print('=> iter: %d, %d samples, average score: %.3f, best score: %0.3f' %(iteration, len(samples), np.mean(scores), best_scores[-1]))
+                print('best sample:', self.best_sample)
+                print('=> average total time per iteration: %.3f' % runtime_total.avg)
+
+
+            if num_not_improve > early_stopping or self.activate_early_stopping:
+                print('=> Activating early stopping')
+                break
+
+        info = {'best_samples': np.asarray(best_samples),
+                'best_scores': np.asarray(best_scores),
+                'all_samples': self.all_samples,
+                'all_scores': self.all_scores}
+        
+        id_best_overall = np.argmax(best_scores)
+        best_sample_overall = best_samples[id_best_overall]
+
+        if len(self.all_subsamples)>0:
+            info['all_subsamples'] = self.all_subsamples
+            info['best_subsamples'] = np.asarray(best_subsamples)
+
+            with open(os.path.join(save_path, f'history_info.pkl'), 'wb') as f:
+                pickle.dump(info, f)
+
+            # input("Press Enter to continue...")
+            path_to_subsamples = [f.path for f in os.scandir(save_path) if f.is_dir()]
+            for f in os.listdir(path_to_subsamples[0]):
+                exp_idx = int(re.search('history_info_([0-9]+)', f).group(1))
+                if exp_idx == id_to_keep:
+                    os.rename(os.path.join(path_to_subsamples[0], f), os.path.join(path_to_subsamples[0], 'history_info.pkl'))
+                else:
+                    os.remove(os.path.join(path_to_subsamples[0], f))
+        else:
+            exp_idx = 0
+            while os.path.exists(os.path.join(save_path, f'history_info_{exp_idx}.pkl')):
+                exp_idx += 1
+            with open(os.path.join(save_path, f'history_info_{exp_idx}.pkl'), 'wb') as f:
+                pickle.dump(info, f)
+
+        if len(self.all_subsamples)>0:
+            return best_sample_overall, best_scores[id_best_overall], best_subsamples[id_best_overall]
+        
+        else:
+            return best_sample_overall, best_scores[id_best_overall]
+
+    
+    def run_SA(self, prev_samples, prev_scores, prev_subsamples, iter, a=0.995, T0=0.2, T_update_freq=1, swap_method='adjacent'):
+        T = T0 * (a ** (iter // T_update_freq))  # temperature
+        
+        swap_func = self.swap_adjacent_neighbors if swap_method=='adjacent' else self.swap_random
+
+        new_samples = copy.deepcopy(prev_samples)
+        new_scores = copy.deepcopy(prev_scores)
+        new_subsamples = copy.deepcopy(prev_subsamples)
+        for i, s in enumerate(prev_samples):
+            p = random.random()
+            c = 0
+            if p > 0.3:
+                while True:
+                    new_sample = swap_func(s, p_swap=0.)
+                    if not self.find_duplicate(new_sample):
+                        break
+                    c += 1
+                    if c > 1e4:
+                        self.activate_early_stopping = True
+                        break
+                prev_score = prev_scores[i]
+                print('old sample:', s)
+                print('old score:', prev_score)
+            else:
+                while True:
+                    new_sample = swap_func(self.best_sample, p_swap=0.)
+                    if not self.find_duplicate(new_sample):
+                        break
+                    c += 1
+                    if c > 1e4:
+                        self.activate_early_stopping = True
+                        break
+                prev_score = self.max_score
+                print('old sample:', self.best_sample)
+                print('old score:', prev_score)
+            
+            new_score, new_subsample = self.get_score(new_sample)
+
+            if new_score > prev_score or np.exp((new_score - prev_score) / T) > np.random.uniform(0, 1):
+                # accept the new sample
+                new_samples[i] = new_sample
+                new_scores[i] = new_score
+                if len(new_subsamples) > 0:
+                    assert new_subsample is not None
+                    new_subsamples[i] = new_subsample
+                print('new sample:', new_sample)
+                print('new score:', new_score)
+
+                # if new_score > self.max_score:
+                #     self.best_sample = copy.deepcopy(new_sample)
+                #     self.max_score = new_score
+
+        return new_samples, new_scores, new_subsamples
