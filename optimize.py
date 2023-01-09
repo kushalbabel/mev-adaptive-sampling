@@ -535,6 +535,7 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', help="Be verbose", action="store_const", dest="loglevel", const=logging.INFO, default=logging.WARNING)
     parser.add_argument('-t', '--transactions', help="Input File path containing parametric transactions")
     parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters")
+    parser.add_argument('--ignore', help="Input File path containing problem names to ignore", default=None)
     parser.add_argument('--grid', action='store_true', help='do grid search instead of sampling')
     
     #------------ Arguments for transaction reordering
@@ -574,11 +575,21 @@ if __name__ == '__main__':
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
-                        if file_pattern in f and int(os.path.basename(dp))>=14.e6] #int(os.path.basename(dp))>=13e6 and int(os.path.basename(dp))<14.e6]
+                        # if file_pattern in f and int(os.path.basename(dp))>=14.e6] 
+                        if file_pattern in f and int(os.path.basename(dp))>=13e6 and int(os.path.basename(dp))<14.e6]
         all_files = np.sort(all_files)
         print(f'found {len(all_files)} files for optimization')
+    
+        invalid_problems = None
+        if args.ignore:
+            with open(args.ignore, 'r') as f:
+                invalid_problems = f.readlines()
 
         for transaction in all_files:
+            if f'{transaction}\n' in invalid_problems:
+                print(f'-------------- ignoring {transaction}')
+                continue
+
             main(args, transaction, grid_search=args.grid)
             # # try:
             # #     main(args, transaction, grid_search=args.grid)

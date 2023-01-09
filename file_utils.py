@@ -3,6 +3,7 @@ import shutil
 import pickle
 import re
 import csv
+import yaml
 import numpy as np
 
 def copy_files(file_patterns, orig_path='./artifacts_', path_to_move='./artifacts'):
@@ -116,15 +117,27 @@ if __name__ == '__main__':
     # count_transactions(path_to_testset='/home/kb742/mev-adaptive-sampling/tests/')
 
     ##### code snippet for restructuring the clienttest files to match the sampling code
-    PATH = '/home/gid-javaheripim/clienttests_sushi_'
-    new_PATH = '/home/gid-javaheripim/clienttests_sushi'
-    os.makedirs(new_PATH, exist_ok=True)
-    all_files = [os.path.join(dp, f) for dp, _, filenames in os.walk(PATH) for f in filenames]
-    for f in all_files:
-        problem_type = os.path.basename(f)
-        problem_number = os.path.basename(os.path.dirname(f))
-        new_name = f'problem_{problem_number}' + ('_reduced' if 'reduced' in problem_type else '')
+    # PATH = '/home/gid-javaheripim/clienttests_sushi_'
+    # new_PATH = '/home/gid-javaheripim/clienttests_sushi'
+    # os.makedirs(new_PATH, exist_ok=True)
+    # all_files = [os.path.join(dp, f) for dp, _, filenames in os.walk(PATH) for f in filenames]
+    # for f in all_files:
+    #     problem_type = os.path.basename(f)
+    #     problem_number = os.path.basename(os.path.dirname(f))
+    #     new_name = f'problem_{problem_number}' + ('_reduced' if 'reduced' in problem_type else '')
         
-        new_f = os.path.join(new_PATH, new_name)
-        shutil.copyfile(f, new_f)
-        print(f'moving {f} to {new_f}')
+    #     new_f = os.path.join(new_PATH, new_name)
+    #     shutil.copyfile(f, new_f)
+    #     print(f'moving {f} to {new_f}')
+
+    ##### code snippet for saving info_summary files
+    path_to_results = 'artifacts_smooth_sushiswap_SA_wronghardhatversion'
+    pattern = 'SA_50iter_1nsamples'
+    curr_results, eth_pairs = gather_results(path_to_results, pattern=pattern)
+    summary_dict = {}
+    for k, v in curr_results.items():
+        eth_pair = eth_pairs[k]
+        summary_dict[f'{eth_pair}/{k}'] = v[-1]
+    print(summary_dict)
+    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'w') as f:
+        yaml.dump(summary_dict, f)

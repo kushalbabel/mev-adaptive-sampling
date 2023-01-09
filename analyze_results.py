@@ -38,7 +38,7 @@ if __name__ == '__main__':
                 ]
 
     if args.SA:
-        path_to_SA = 'artifacts_smooth_SA' #args.path + '_SA'
+        path_to_SA = 'artifacts_smooth_sushiswap_SA' #args.path + '_SA'
         patterns.append('SA_50iter_1nsamples')
 
     flashbots_data = None
@@ -48,30 +48,32 @@ if __name__ == '__main__':
         flashbots_data = pd.read_csv(path_to_flashbots)
         patterns.append('flashbots')
     
+    noinsertion_mev_dict = None
     # load mev baseline with no miner insertions
-    eth_pairs = [p for p in os.listdir(args.path) if os.path.isdir(os.path.join(args.path, p))]
-    noinsertion_mev_dict = {}
-    summary_dict = {}
-    for eth_pair in eth_pairs:
-        path_to_yaml = os.path.join(args.path, eth_pair, 'noinsertion_mev.yaml')
-        with open(path_to_yaml, 'r') as f:
-            mev_info = yaml.safe_load(f)
-        for k, v in mev_info.items():
-            if k in noinsertion_mev_dict.keys():
-                noinsertion_mev_dict[k] = max(v, noinsertion_mev_dict[k])
-            else:
-                noinsertion_mev_dict[k] = v
+    # eth_pairs = [p for p in os.listdir(args.path) if os.path.isdir(os.path.join(args.path, p))]
+    # noinsertion_mev_dict = {}
+    # summary_dict = {}
+    # for eth_pair in eth_pairs:
+    #     path_to_yaml = os.path.join(args.path, eth_pair, 'noinsertion_mev_0alphas.yaml')
+    #     with open(path_to_yaml, 'r') as f:
+    #         mev_info = yaml.safe_load(f)
+    #     for k, v in mev_info.items():
+    #         if k in noinsertion_mev_dict.keys():
+    #             noinsertion_mev_dict[k] = max(v, noinsertion_mev_dict[k])
+    #         else:
+    #             noinsertion_mev_dict[k] = v
 
-            summary_dict[f'{eth_pair}/{k}'] = v
-    # print(summary_dict)
-    # with open(os.path.join(args.path, 'info_summary_noinsertion.yaml'), 'w') as f:
-    #     yaml.dump(summary_dict, f)
+    #         summary_dict[f'{eth_pair}/{k}'] = v
+    # # print(summary_dict)
+    # # with open(os.path.join(args.path, 'info_summary_noinsertion.yaml'), 'w') as f:
+    # #     yaml.dump(summary_dict, f)
 
     best_scores_all = []
     x_axis = []
     idx_random = None
     for i, p in enumerate(patterns):
         if 'flashbots' in p:
+            flashbots_idx = i
             flashbots_logs_ = {str(flashbots_data['blocknumber'][idx]): flashbots_data['fb_mev'][idx] + block_reward for idx in range(len(flashbots_data.index))}
             if '/' in list(flashbots_logs_.keys())[0]:
                 flashbots_logs = {}
@@ -94,6 +96,9 @@ if __name__ == '__main__':
             else:
                 if 'SA' in p:
                     path_to_results = path_to_SA
+                    SA_idx = i
+                else:
+                    ours_idx = i
                 curr_results, eth_pairs = gather_results(path_to_results, pattern=p)
                 best_scores_all.append(curr_results)
             n_iter = int(re.search('([0-9]+)iter', p).group(1))
@@ -123,8 +128,8 @@ if __name__ == '__main__':
 
     #------ find common experiment names
     # common_keys = [str(i) for i in [13179381, 13525407, 13262636, 13420743, 13519520, 13539852, 13539877, 13501761, 13526069, 13406200, 13022130, 13529335, 13504619, 13450855, 13076476, 13285119, 13103508, 13235453, 13115319, 13534463, 13119385, 13450863, 13236404, 13457441, 13179367, 13142903, 13238591, 13119472, 13486527, 13121478, 13491910, 13389694, 13377448, 13450892, 13184922, 13536521, 13185021, 13118320, 13323340, 13359998, 13075089, 13450883]]
-    common_keys = list(best_scores[0].keys())
-    for i in range(1, len(best_scores)):
+    common_keys = np.asarray(list(best_scores[0].keys()))
+    for i in range(2, len(best_scores)):
         common_keys = np.intersect1d(common_keys, list(best_scores[i].keys()))
     common_keys = common_keys.tolist()
     print('problem names:', common_keys)
@@ -132,6 +137,9 @@ if __name__ == '__main__':
         common_keys.remove('13118320') # problems in sushiswap that ruin the MEV plot scale
     #     common_keys.remove('13450883')
     #     common_keys.remove('13323340')
+    for k in common_keys:
+        if not k in best_scores[flashbots_idx].keys():
+            best_scores[flashbots_idx][k] = [block_reward]
 
     dict_to_save = {}
     for k in common_keys:
@@ -157,22 +165,50 @@ if __name__ == '__main__':
         plt.xlabel('maximum MEV')
         plt.ylabel('problem count')
         plt.savefig(os.path.join(path_to_save, 'MEVhist_{}_{}.png'.format(patterns[i], 'reorder' if args.reorder else 'alpha' )))
-
+    
+    #------- list of problems to remove
+    assert 'sushiswap' in args.path or 'uniswapv2' in args.path, 'contract name (sushiswap or uniswapv2) must be in the path argument'
+    path_to_invalid_problems = 'analysis/{}_negatives'.format('sushiswap' if 'sushiswap' in args.path else 'uniswapv2')
+    with open(path_to_invalid_problems, 'r') as f:
+        invalid_problems = f.readlines()
+    keys_to_remove = []
+    count_removed = 0
+    orig_count = len(common_keys)
+    for l in invalid_problems:
+        try:
+            p_name = l.split('/')[-2]
+        except:
+            p_name = ''
+        if p_name in common_keys:
+            flasbots_mev = np.max(best_scores[flashbots_idx][p_name])
+            our_mev = np.max(best_scores[ours_idx][p_name])
+            if flasbots_mev > our_mev:
+                common_keys.remove(p_name)
+                print(f'removing {p_name}')
+                count_removed += 1
+    print(f'{count_removed}/{orig_count} problems removed')
+    
     #------- plot mev versus problem number
-    ours_main = [np.max(best_scores[0][k]) for k in common_keys]
-    sort_indices = np.argsort(ours_main).tolist()
+    common_keys = np.asarray(common_keys)
+    ours_main = np.asarray([np.max(best_scores[0][k]) for k in common_keys])
+    indices_to_keep = (ours_main <= np.max(ours_main))
+    sort_indices = np.argsort(ours_main[indices_to_keep]).tolist()
     plt.clf()
     fig, ax = plt.subplots(figsize=(20, 6))
     for i in range(len(best_scores)):
-        curr_data = np.asarray([np.max(best_scores[i][k]) for k in common_keys])[sort_indices]
+        curr_data = np.asarray([np.max(best_scores[i][k]) for k in common_keys])[indices_to_keep][sort_indices]
         plt.plot(curr_data, label=patterns[i])
-    # plt.plot(np.asarray([noinsertion_mev_dict[k] for k in common_keys])[sort_indices], label='no miner insertions')
+    if noinsertion_mev_dict is not None:
+        plt.plot(np.asarray([noinsertion_mev_dict[k] for k in common_keys])[indices_to_keep][sort_indices], label='no miner insertions')
     plt.legend()
     plt.xlabel('problem number')
-    ax.set_xticks(range(len(common_keys)))
-    ax.set_xticklabels(np.asarray(common_keys)[sort_indices], rotation=90)
+    ax.set_xticks(range(len(common_keys[indices_to_keep])))
+    ax.set_xticklabels(np.asarray(common_keys)[indices_to_keep][sort_indices], rotation=90)
     plt.ylabel('MEV')
-    plt.savefig(os.path.join(path_to_save, 'baseline_mev_{}_SA.png'.format('reorder' if args.reorder else 'alpha')), bbox_inches='tight')
+    plt.yscale('log')
+    fname = 'fairbaseline_mev_{}'.format('reorder' if args.reorder else 'alpha')
+    fname += '_SA.png' if args.SA else '.png'
+    plt.savefig(os.path.join(path_to_save, fname), bbox_inches='tight')
 
     if args.flashbots:
         best_scores.pop(-1) #remove flashbots logs
