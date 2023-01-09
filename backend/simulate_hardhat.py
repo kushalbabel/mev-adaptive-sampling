@@ -333,7 +333,9 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     
     # Preparation transactions
     for token in approved_tokens:
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+        # simulate_tx(approve_tx, w3) #1e27
+        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
         simulate_tx(approve_tx, w3) #1e27
     
     # Execute transactions
@@ -374,7 +376,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     if settlement == 'dex' or settlement == 'max':
         # settle on dex, calculation changes STATE!!
         for token_addr in remaining_balances:
-            automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balances[token_addr], token_addr)
+            automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balances[token_addr], token_addr)
             simulate_tx(automatic_tx, w3)
         # mine the block to execute automatic_tx
         mine_block()
