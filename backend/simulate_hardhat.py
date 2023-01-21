@@ -3,6 +3,7 @@ import requests
 import json
 import argparse
 import sys
+import pandas as pd
 import logging
 from copy import deepcopy
 from contracts import utils
@@ -23,6 +24,7 @@ simlogger.propagate = False
 
 LARGE_NEGATIVE = -1e9
 BLOCKREWARD = 2
+weth = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'
 FORK_URL = 'http://localhost:8547'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
@@ -41,6 +43,7 @@ MINER_CAPITAL = 1000*1e18
 nonces = defaultdict(lambda: 0)
 prices = dict()
 decimals = dict()
+dexes = dict()
 
 def query_block(block_number):
     data = {}
@@ -121,6 +124,27 @@ def get_decimals(token_addr):
     r = requests.post(ARCHIVE_NODE_URL, json=data)
     response = json.loads(r.content)
     return int(response["result"], 16)
+
+def get_v2price(token_addr, exchange_addr):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_call'
+    function_selector = "0x0902f1ac000000000000000000000000"
+    calldata = function_selector
+    data["params"] = [{"to": exchange_addr, "data":calldata}, "latest"]
+    # now = datetime.now()
+    data['id'] = 1
+    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    response = json.loads(r.content)
+    result = response["result"]
+    reserve0 = int(result[2:66], 16)
+    reserve1 = int(result[66:130], 16)
+    # print(reserve0, reserve1)
+    if int(token_addr, 16) < int(weth, 16):
+        return reserve1 / reserve0
+    else:
+        return reserve0 / reserve1
+
 
 # in eth
 def get_mev():
@@ -293,14 +317,32 @@ def simulate_tx(line, w3):
 # bootstrap_line : the first line of the problem
 def setup(bootstrap_line):
     bootstrap_line = bootstrap_line.strip()
-    global prices, decimals
+    global prices, decimals, dexes
     w3 = Web3(Web3.HTTPProvider(ARCHIVE_NODE_URL))
     approved_tokens = bootstrap_line.split(',')[1:]
     for token in approved_tokens:
         if token.startswith('0x'):
             token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
+    df = pd.read_csv('/data/latest-data/uniswapv2_pairs.csv')
+    dexes = dict()
+    sushiswap = '0xc0aee478e3658e2610c5f7a4a2e1777ce9e4f2ac'
+    uniswapv2 = '0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f'
+    for token in approved_tokens:
+        dexes[token] = dict()
+        if int(weth, 16) > int(token, 16):
+            uniswapv2_df = df[(df['exchange'] == uniswapv2) & ((df['token0'] == token.lower()) & (df['token1'] == weth)) ]
+            sushiswap_df = df[(df['exchange'] == sushiswap) & ((df['token0'] == token.lower()) & (df['token1'] == weth))]
+        else:
+            uniswapv2_df = df[(df['exchange'] == uniswapv2) & ((df['token1'] == token.lower()) & (df['token0'] == weth)) ]
+            sushiswap_df = df[(df['exchange'] == sushiswap) & ((df['token1'] == token.lower()) & (df['token0'] == weth))]
+        if len(uniswapv2_df) > 0:
+            dexes[token]['UniswapV2'] = uniswapv2_df.iloc[0].pair
+        if len(sushiswap_df) > 0:
+            dexes[token]['Sushiswap'] = sushiswap_df.iloc[0].pair
+    # print(dexes)
     prices = dict()
     decimals = dict()
+    
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     involved_tokens = approved_tokens
     prices['eth'] = get_price(bootstrap_block, 'eth')
@@ -333,8 +375,8 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     
     # Preparation transactions
     for token in approved_tokens:
-        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
-        # simulate_tx(approve_tx, w3) #1e27
+        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+        simulate_tx(approve_tx, w3) #1e27
         approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
         simulate_tx(approve_tx, w3) #1e27
     
@@ -376,7 +418,17 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     if settlement == 'dex' or settlement == 'max':
         # settle on dex, calculation changes STATE!!
         for token_addr in remaining_balances:
-            automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balances[token_addr], token_addr)
+            remaining_balance = remaining_balances[token_addr]
+            if remaining_balance <= 0:
+                continue
+            uniswapv2_price = get_v2price(token_addr, dexes[token_addr]['UniswapV2'])
+            sushiswap_price = get_v2price(token_addr, dexes[token_addr]['Sushiswap'])
+            # print(uniswapv2_price)
+            # print(sushiswap_price)
+            if sushiswap_price > uniswapv2_price:
+                automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balance, token_addr)
+            else:
+                automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balance, token_addr)
             simulate_tx(automatic_tx, w3)
         # mine the block to execute automatic_tx
         mine_block()
@@ -433,5 +485,5 @@ if __name__ == '__main__':
     print("setting up...", lines[0])
     setup(lines[0])
     print("simulating...")
-    mev = simulate(lines, port_id, True, 'temp', args.settlement)
+    mev = simulate(lines, port_id, False, '', args.settlement)
     print(mev)
