@@ -23,7 +23,7 @@ simlogger.propagate = False
 
 LARGE_NEGATIVE = -1e9
 BLOCKREWARD = 2
-weth = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'
+WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
 FORK_URL = 'http://localhost:8547'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
@@ -128,7 +128,7 @@ def getAmountOutv2(token_addr, router_contract, in_amount):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'eth_call'
-    calldata = utils.encode_function_call1(router_contract, 'getAmountsOut', [in_amount, '[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2]'.format(token_addr)])
+    calldata = utils.encode_function_call1(router_contract, 'getAmountsOut', [in_amount, '[{}-{}]'.format(token_addr, WETH)])
     data["params"] = [{"to": router_contract.address, "data":calldata}, "latest"]
     data['id'] = 1
     r = requests.post(FORK_URL, json=data)
@@ -399,9 +399,9 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
             uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
             sushiswap_out_amount = getAmountOutv2(token_addr, sushiswap_router_contract, remaining_balance)
             if sushiswap_out_amount > uniswapv2_out_amount:
-                automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balance, token_addr)
+                automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-{}],miner,1800000000'.format(remaining_balance, token_addr, WETH)
             else:
-                automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balance, token_addr)
+                automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-{}],miner,1800000000'.format(remaining_balance, token_addr, WETH)
             simulate_tx(automatic_tx, w3)
         # mine the block to execute automatic_tx
         mine_block()
