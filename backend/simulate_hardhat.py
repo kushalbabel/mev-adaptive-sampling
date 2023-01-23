@@ -134,15 +134,18 @@ def get_reserves(exchange_addr):
     data["params"] = [{"to": exchange_addr, "data":calldata}, "latest"]
     # now = datetime.now()
     data['id'] = 1
-    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    r = requests.post(FORK_URL, json=data)
     response = json.loads(r.content)
     result = response["result"]
     reserve0 = result[2:66]
     reserve1 = result[66:130]
+    ts = result[130:]
+    print("Reserve TS", int(ts, 16))
     return reserve0, reserve1
 
-def getAmountOutv2(token_addr, exchange_addr, router_contract, in_amount):
+def getAmountOutv1(token_addr, exchange_addr, router_contract, in_amount):
     reserve0, reserve1 = get_reserves(exchange_addr)
+    print("reserve0", int(reserve0, 16), "reserve1", int(reserve1, 16))
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'eth_call'
@@ -152,13 +155,31 @@ def getAmountOutv2(token_addr, exchange_addr, router_contract, in_amount):
         calldata = utils.encode_function_call1(router_contract, 'getAmountOut', [in_amount, int(reserve1, 16), int(reserve0, 16)])
     data["params"] = [{"to": router_contract.address, "data":calldata}, "latest"]
     data['id'] = 1
-    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    r = requests.post(FORK_URL, json=data)
     response = json.loads(r.content)
     if 'result' in response:
         return int(response['result'], 16)
     else:
         # TODO log response
         return 0
+
+def getAmountOutv2(token_addr, exchange_addr, router_contract, in_amount):
+    reserve0, reserve1 = get_reserves(exchange_addr)
+    print("reserve0", int(reserve0, 16), "reserve1", int(reserve1, 16))
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_call'
+    calldata = utils.encode_function_call1(router_contract, 'getAmountsOut', [in_amount, '[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2]'.format(token_addr)])
+    data["params"] = [{"to": router_contract.address, "data":calldata}, "latest"]
+    data['id'] = 1
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    if 'result' in response:
+        return int(response['result'][-64:], 16)
+    else:
+        # TODO log response
+        return 0
+
 
 # in eth
 def get_mev():
@@ -389,6 +410,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
         approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
         simulate_tx(approve_tx, w3) #1e27
     
+
     # Execute transactions
     for line in lines[1:]:
         if line.startswith('#'):
@@ -400,6 +422,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     if 'error' in mine_result:
         simlogger.debug(mine_result['error'])
         return None
+
 
     # get remaining balances
     remaining_balances = {}
