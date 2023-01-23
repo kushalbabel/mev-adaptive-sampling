@@ -3,7 +3,6 @@ import requests
 import json
 import argparse
 import sys
-import pandas as pd
 import logging
 from copy import deepcopy
 from contracts import utils
@@ -43,7 +42,6 @@ MINER_CAPITAL = 1000*1e18
 nonces = defaultdict(lambda: 0)
 prices = dict()
 decimals = dict()
-dexes = dict()
 
 def query_block(block_number):
     data = {}
@@ -125,47 +123,8 @@ def get_decimals(token_addr):
     response = json.loads(r.content)
     return int(response["result"], 16)
 
-def get_reserves(exchange_addr):
-    data = {}
-    data['jsonrpc'] = '2.0'
-    data['method'] = 'eth_call'
-    function_selector = "0x0902f1ac000000000000000000000000"
-    calldata = function_selector
-    data["params"] = [{"to": exchange_addr, "data":calldata}, "latest"]
-    # now = datetime.now()
-    data['id'] = 1
-    r = requests.post(FORK_URL, json=data)
-    response = json.loads(r.content)
-    result = response["result"]
-    reserve0 = result[2:66]
-    reserve1 = result[66:130]
-    ts = result[130:]
-    print("Reserve TS", int(ts, 16))
-    return reserve0, reserve1
 
-def getAmountOutv1(token_addr, exchange_addr, router_contract, in_amount):
-    reserve0, reserve1 = get_reserves(exchange_addr)
-    print("reserve0", int(reserve0, 16), "reserve1", int(reserve1, 16))
-    data = {}
-    data['jsonrpc'] = '2.0'
-    data['method'] = 'eth_call'
-    if int(token_addr, 16) < int(weth, 16):
-        calldata = utils.encode_function_call1(router_contract, 'getAmountOut', [in_amount, int(reserve0, 16), int(reserve1, 16)])
-    else:
-        calldata = utils.encode_function_call1(router_contract, 'getAmountOut', [in_amount, int(reserve1, 16), int(reserve0, 16)])
-    data["params"] = [{"to": router_contract.address, "data":calldata}, "latest"]
-    data['id'] = 1
-    r = requests.post(FORK_URL, json=data)
-    response = json.loads(r.content)
-    if 'result' in response:
-        return int(response['result'], 16)
-    else:
-        # TODO log response
-        return 0
-
-def getAmountOutv2(token_addr, exchange_addr, router_contract, in_amount):
-    reserve0, reserve1 = get_reserves(exchange_addr)
-    print("reserve0", int(reserve0, 16), "reserve1", int(reserve1, 16))
+def getAmountOutv2(token_addr, router_contract, in_amount):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'eth_call'
@@ -349,28 +308,12 @@ def simulate_tx(line, w3):
 # bootstrap_line : the first line of the problem
 def setup(bootstrap_line):
     bootstrap_line = bootstrap_line.strip()
-    global prices, decimals, dexes
+    global prices, decimals
     w3 = Web3(Web3.HTTPProvider(ARCHIVE_NODE_URL))
     approved_tokens = bootstrap_line.split(',')[1:]
     for token in approved_tokens:
         if token.startswith('0x'):
             token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
-    df = pd.read_csv('/data/latest-data/uniswapv2_pairs.csv')
-    dexes = dict()
-    sushiswap = '0xc0aee478e3658e2610c5f7a4a2e1777ce9e4f2ac'
-    uniswapv2 = '0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f'
-    for token in approved_tokens:
-        dexes[token] = dict()
-        if int(weth, 16) > int(token, 16):
-            uniswapv2_df = df[(df['exchange'] == uniswapv2) & ((df['token0'] == token.lower()) & (df['token1'] == weth)) ]
-            sushiswap_df = df[(df['exchange'] == sushiswap) & ((df['token0'] == token.lower()) & (df['token1'] == weth))]
-        else:
-            uniswapv2_df = df[(df['exchange'] == uniswapv2) & ((df['token1'] == token.lower()) & (df['token0'] == weth)) ]
-            sushiswap_df = df[(df['exchange'] == sushiswap) & ((df['token1'] == token.lower()) & (df['token0'] == weth))]
-        if len(uniswapv2_df) > 0:
-            dexes[token]['UniswapV2'] = uniswapv2_df.iloc[0].pair
-        if len(sushiswap_df) > 0:
-            dexes[token]['Sushiswap'] = sushiswap_df.iloc[0].pair
     prices = dict()
     decimals = dict()
     
@@ -453,8 +396,8 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
             remaining_balance = remaining_balances[token_addr]
             if remaining_balance <= 0:
                 continue
-            uniswapv2_out_amount = getAmountOutv2(token_addr, dexes[token_addr]['UniswapV2'], uniswap_router_contract, remaining_balance)
-            sushiswap_out_amount = getAmountOutv2(token_addr, dexes[token_addr]['Sushiswap'], sushiswap_router_contract, remaining_balance)
+            uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
+            sushiswap_out_amount = getAmountOutv2(token_addr, sushiswap_router_contract, remaining_balance)
             if sushiswap_out_amount > uniswapv2_out_amount:
                 automatic_tx = '1,miner,SushiswapRouter,0,swapExactTokensForETH,{},0,[{}-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2],miner,1800000000'.format(remaining_balance, token_addr)
             else:
