@@ -1,5 +1,5 @@
 backend/anvil/logs/*
-./artifacts
+./artifacts*
 ./venv/
 ./__pycache__/
 *.pyc
