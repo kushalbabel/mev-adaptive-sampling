@@ -372,10 +372,10 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     
     # Preparation transactions
     for token in approved_tokens:
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
+        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+        # simulate_tx(approve_tx, w3) #1e27
+        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
+        # simulate_tx(approve_tx, w3) #1e27
         approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
         simulate_tx(approve_tx, w3) #1e27
         approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
