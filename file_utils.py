@@ -4,7 +4,11 @@ import pickle
 import re
 import csv
 import yaml
+import time
 import numpy as np
+import multiprocessing as mp
+
+from simulate_client import simulate, setup
 
 def copy_files(file_patterns, orig_path='./artifacts_', path_to_move='./artifacts'):
     for problem in os.listdir(orig_path):
@@ -56,22 +60,24 @@ def count_transactions(path_to_testset):
     print('median transaction count:', np.median(lengths))
     print('# random samples based on median:', np.math.factorial(int(np.max(lengths)))/1000)
 
-def gather_results(path, pattern):
-    def gather_result_paths(path, pattern):
-        paths = []
-        if os.path.isdir(path):
-            if pattern in path:
-                f = os.path.join(path, 'history_info.pkl')
-                if os.path.exists(f):
-                    return [f]
-                else:
-                    print("no log file found in ", path)
-            else:
-                for d in os.listdir(path):
-                        paths += gather_result_paths(os.path.join(path, d), pattern)
-        return paths
 
-    paths = gather_result_paths(path, pattern)
+def gather_result_paths(path, pattern, fname):
+    paths = []
+    if os.path.isdir(path):
+        if pattern in path:
+            f = os.path.join(path, fname)
+            if os.path.exists(f):
+                return [f]
+            else:
+                print(f"no {fname} found in {path}")
+        else:
+            for d in os.listdir(path):
+                paths += gather_result_paths(os.path.join(path, d), pattern, fname)
+    return paths
+
+
+def gather_results(path, pattern):
+    paths = gather_result_paths(path, pattern, fname='history_info.pkl')
 
     results, eth_pairs = {}, {}
     for p in paths:
@@ -103,6 +109,19 @@ def dump_csvs(path, testset, pattern):
         writer.writerows(rows)
 
 
+class Timer():
+    def __init__(self, transactions):
+        self.transactions = transactions
+        setup(transactions[0])
+    
+    def evaluate(self, port_id):
+        t0 = time.time()
+        mev = simulate(self.transactions, port_id)
+        t1 = time.time() - t0
+
+        return mev, t1
+
+
 if __name__ == '__main__':
     # dump_csvs('./artifacts_earlystopping', testset='tests', pattern='50iter_50nsamples_0.2random_0.4local_0.4_cross')
     
@@ -130,14 +149,70 @@ if __name__ == '__main__':
     #     shutil.copyfile(f, new_f)
     #     print(f'moving {f} to {new_f}')
 
+
+    ##### code snippet for merging logs from two directories into one of them
+    # src = 'artifacts_smooth_uniswapv2_updatedTX_over14e6'
+    # dst = 'artifacts_smooth_uniswapv2_updatedTX'
+
+    # eth_pairs_src = [p for p in os.listdir(src) if os.path.isdir(os.path.join(src, p))]
+    # eth_pairs_dst = [p for p in os.listdir(dst) if os.path.isdir(os.path.join(dst, p))]
+    # for eth_pair in eth_pairs_src:
+    #     curr_path = os.path.join(src, eth_pair)
+    #     if eth_pair not in eth_pairs_dst:
+    #         print(f'moving {curr_path} to {dst}')
+    #         shutil.copytree(curr_path, os.path.join(dst, eth_pair), dirs_exist_ok=True)
+    #     else:
+    #         problem_names = [p for p in os.listdir(curr_path) if os.path.isdir(os.path.join(curr_path, p))]
+    #         for p_name in problem_names:
+    #             print(f'moving {os.path.join(curr_path, p_name)} to {os.path.join(dst, eth_pair)}')
+    #             assert not os.path.exists(os.path.join(dst, eth_pair, p_name))
+    #             shutil.copytree(os.path.join(curr_path, p_name), os.path.join(dst, eth_pair, p_name), dirs_exist_ok=True)
+
     ##### code snippet for saving info_summary files
-    path_to_results = 'artifacts_smooth_sushiswap_SA_wronghardhatversion'
-    pattern = 'SA_50iter_1nsamples'
-    curr_results, eth_pairs = gather_results(path_to_results, pattern=pattern)
-    summary_dict = {}
-    for k, v in curr_results.items():
-        eth_pair = eth_pairs[k]
-        summary_dict[f'{eth_pair}/{k}'] = v[-1]
-    print(summary_dict)
-    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'w') as f:
-        yaml.dump(summary_dict, f)
+    # path_to_results = 'artifacts_smooth'
+    # pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor' #'10iter_15nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
+    # curr_results, eth_pairs = gather_results(path_to_results, pattern=pattern)
+    # summary_dict = {}
+    # for k, v in curr_results.items():
+    #     eth_pair = eth_pairs[k]
+    #     summary_dict[f'{eth_pair}/{k}'] = v[-1]
+    # print(summary_dict)
+    # with open(os.path.join(path_to_results, 'info_summary.yaml'), 'w') as f:
+    #     yaml.dump(summary_dict, f)
+
+
+    ##### code snippet for saving per-sample simulation time
+    path_to_results = 'artifacts_smooth'
+    pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
+    n_repeat = 44
+
+    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'r') as f:
+        orig_mevs = yaml.safe_load(f)
+
+    paths = gather_result_paths(path_to_results, pattern, fname='transactions_optimized')
+    times_summary = {}
+    for p in paths:
+        with open(p, 'r') as transactions_f:
+            transactions = transactions_f.readlines()
+        eth_pair_idx = re.search('(0x[a-z0-9]+)', p).span()[1]
+        eth_pair = re.search('(0x[a-z0-9]+)', p).group(1)
+        problem_name = p[eth_pair_idx:].split('/')[1]
+        k = f'{eth_pair}/{problem_name}'
+        
+        timer_obj = Timer(transactions)
+        
+        curr_times = []
+        new_mevs = []
+        for _ in range(5):
+            with mp.Pool() as e:
+                batch_output = list(e.map(timer_obj.evaluate, range(n_repeat)))
+            new_mevs += [batch_output[i][0] for i in range(len(batch_output))]
+            curr_times += [batch_output[i][1] for i in range(len(batch_output))]
+        assert new_mevs[0] == orig_mevs[k]
+        times_summary[k] = np.mean(curr_times).tolist()
+        print(k, times_summary[k])
+
+    with open(os.path.join(path_to_results, 'times_summary.yaml'), 'w') as f:
+        yaml.dump(times_summary, f)
+
+

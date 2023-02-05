@@ -338,9 +338,7 @@ class AdaNS_sampler(object):
                 #                                 (i+1)*n_parallel, num_samples))    
             runtime_simulation.update(time.time()-t1)
 
-            # check whether the MEV is None for the entire batch
-            if np.sum(np.asarray(scores)==0) == len(scores) and len(subsamples)>0:
-                return None, None, None
+            # change None MEVs to 0 and report the number
             count = 0
             for i, s in enumerate(scores):
                 if np.isnan(s):
@@ -349,6 +347,9 @@ class AdaNS_sampler(object):
             if count > 0:
                 print(f'============ converted {count}/{len(scores)} Nan score values to 0')
             assert np.sum(np.isnan(np.asarray(scores, dtype=float)))==0, np.sum(np.isnan(np.asarray(scores, dtype=float)))
+            # check whether the MEV is None for the entire batch
+            if np.sum(np.asarray(scores)==0) == len(scores) and len(subsamples)>0:
+                return None, None, None
 
             subsamples = None if len(subsamples) == 0 else subsamples 
             self.update(samples=samples, scores=scores, origins=origins, alpha_max=alpha_max, subsamples=subsamples, save_path=save_path)
@@ -1589,9 +1590,7 @@ class SA_sampler(object):
                 else:
                     num_not_improve = 0
 
-            # check whether the MEV is None for the entire batch
-            if np.sum(np.asarray(scores)==0) == len(scores) and len(subsamples)>0:
-                return None, None, None
+            # change None MEVs to 0 and report the number
             count = 0
             for i, s in enumerate(scores):
                 if np.isnan(s):
@@ -1600,7 +1599,10 @@ class SA_sampler(object):
             if count > 0:
                 print(f'============ converted {count}/{len(scores)} Nan score values to 0')
             assert np.sum(np.isnan(np.asarray(scores, dtype=float)))==0, np.sum(np.isnan(np.asarray(scores, dtype=float)))
-
+            # check whether the MEV is None for the entire batch
+            if np.sum(np.asarray(scores)==0) == len(scores) and len(subsamples)>0:
+                return None, None, None
+            
             subsamples = None if len(subsamples) == 0 else subsamples 
             self.update(samples=samples, scores=scores, subsamples=subsamples)
 

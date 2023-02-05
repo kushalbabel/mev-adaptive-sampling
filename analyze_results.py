@@ -1,18 +1,305 @@
-from hashlib import new
 import os
 import argparse
-from collections import OrderedDict
-from matplotlib import collections
 import pandas as pd
 import re
 import yaml
+import pickle
+import datetime
+import matplotlib
 from tqdm import tqdm
+from collections import OrderedDict
+from matplotlib import collections
+from hashlib import new
 import numpy as np
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 
 from file_utils import gather_results
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Run Optimization')
+
+    #------------ Arguments for transactios
+    parser.add_argument('-p', '--path', help="path to results")
+    parser.add_argument('-s', '--section', help="which section of the lanturn does the plot belong to")
+    args = parser.parse_args()  
+
+    block_reward = 4.
+    sorted_blocknum = True # if True, sorts by the block number, else by the mev
+    path_to_save = 'plots/paper'
+    os.makedirs(path_to_save, exist_ok=True)
+
+    matplotlib.rc('xtick', labelsize=14) 
+    matplotlib.rc('ytick', labelsize=14)
+
+    if args.section == '5.3.1':
+        #### load flashbots data
+        # path_to_flashbots = '/home/kb742/mev-adaptive-sampling/data/flashbots_baseline.csv'
+        path_to_flashbots = 'flashbots_baseline_for_problems.csv'   # fair baseline
+        flashbots_data = pd.read_csv(path_to_flashbots)
+        flashbots_logs_ = {str(flashbots_data['blocknumber'][idx]): flashbots_data['fb_mev'][idx] + block_reward for idx in range(len(flashbots_data.index))}
+        if '/' in list(flashbots_logs_.keys())[0]:
+            flashbots_logs = {}
+            for k, v in flashbots_logs_.items():
+                if ('sushiswap' in args.path and 'uniswapv2' in k) or \
+                    ('sushiswap' not in args.path and not 'uniswapv2' in k):
+                    continue
+                new_k = k.split('/')[-2]
+                if new_k in flashbots_logs:
+                    flashbots_logs[new_k] = max(flashbots_logs[new_k], v)
+                else:
+                    flashbots_logs[new_k] = v
+        else:
+            flashbots_logs = flashbots_logs_
+
+        #### load Lanturn data  
+        path_to_results_yaml = os.path.join(args.path, 'info_summary.yaml')
+        with open(path_to_results_yaml, 'r') as f:
+            curr_results = yaml.safe_load(f)
+        lanturn_results = {}
+        for k in curr_results.keys():
+            eth_pair, block_num = k.split('/')[0], k.split('/')[1]
+            
+            if block_num in lanturn_results:
+                lanturn_results[block_num] = max(lanturn_results[block_num], curr_results[k])
+            else:
+                lanturn_results[block_num] = curr_results[k]  
+        print(f'found {len(lanturn_results.keys())} Lantern results')
+
+        common_keys = list(lanturn_results.keys())
+        for k in common_keys:
+            if not k in flashbots_logs:
+                flashbots_logs[k] = block_reward
+
+        #### remove flashbots problems with more transactions than lanturn
+        assert 'sushiswap' in args.path or 'uniswapv2' in args.path, 'contract name (sushiswap or uniswapv2) must be in the path argument'
+        path_to_invalid_problems = 'analysis/{}_negatives'.format('sushiswap' if 'sushiswap' in args.path else 'uniswapv2')
+        with open(path_to_invalid_problems, 'r') as f:
+            invalid_problems = f.readlines()
+        keys_to_remove = []
+        count_removed = 0
+        orig_count = len(common_keys)
+        for l in invalid_problems:
+            try:
+                p_name = l.split('/')[-2]
+            except:
+                p_name = ''
+            if p_name in common_keys:
+                flasbots_mev = flashbots_logs[p_name]
+                our_mev = lanturn_results[p_name]
+                if flasbots_mev > our_mev:
+                    common_keys.remove(p_name)
+                    print(f'removing {p_name}')
+                    count_removed += 1
+        print(f'{count_removed}/{orig_count} problems removed')
+
+        #### plot mev versus block number
+        common_keys = [int(k) for k in common_keys]
+        if sorted_blocknum:
+            common_keys_sorted = np.sort(common_keys)
+            # # plot block number versus date
+            # df = pd.read_csv('/data/latest-data/block_times.csv')
+            # dates = []
+            # for k in common_keys_sorted:
+            #     row_idx = df.index[df['block']==k]
+            #     date = datetime.datetime.fromtimestamp(df['timestamp'][row_idx])
+            #     dates.append(f'{date.year}/{date.month}/{date.day}')
+            # print(dates)
+
+        else:
+            lanturn_values = [lanturn_results[str(common_keys[i])] for i in range(len(common_keys))]
+            indices_sorted = np.argsort(lanturn_values)
+            common_keys_sorted = np.asarray(common_keys)[indices_sorted]
         
+        flashbots_values_sorted = np.asarray([flashbots_logs[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
+        lanturn_values_sorted =  np.asarray([lanturn_results[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
+        indices_to_keep = [i for i in range(len(common_keys_sorted)) if lanturn_values_sorted[i] >= block_reward + 1.]    
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(20, 4))
+        plt.plot(lanturn_values_sorted[indices_to_keep], label='Lanturn')
+        plt.plot(flashbots_values_sorted[indices_to_keep], label='Flashbots')
+        plt.legend(fontsize=16)
+        plt.xlabel('Block number', fontsize=16)
+        ax.set_xticks(range(len(indices_to_keep)))
+        xticklabels = []
+        for i, idx in enumerate(indices_to_keep):
+            xticklabels.append(common_keys_sorted[idx] if i%3==0 else '')
+        ax.set_xticklabels(xticklabels, rotation=60)
+        plt.ylabel('MEV', fontsize=16)
+        plt.yscale('log')
+        fname = '{}.png'.format(args.path.replace('artifacts_smooth_', ''))
+        plt.savefig(os.path.join(path_to_save, fname), bbox_inches='tight')
+
+    elif args.section == '5.3.2':
+        #### load combo data  
+        path_to_combo = 'artifacts_smooth_combo'
+        with open(os.path.join(path_to_combo, 'info_summary.yaml'), 'r') as f:
+            curr_results = yaml.safe_load(f)
+        combo_results = {}
+        for k in curr_results.keys():
+            eth_pair, block_num = k.split('/')[0], k.split('/')[1]
+            
+            if block_num in combo_results:
+                combo_results[block_num] = max(combo_results[block_num], curr_results[k])
+            else:
+                combo_results[block_num] = curr_results[k]  
+        print(f'found {len(combo_results.keys())} combo results')
+
+        #### load Lanturn data  
+        path_to_results_yaml = os.path.join(args.path, 'info_summary.yaml')
+        with open(path_to_results_yaml, 'r') as f:
+            curr_results = yaml.safe_load(f)
+        lanturn_results = {}
+        for k in curr_results.keys():
+            eth_pair, block_num = k.split('/')[0], k.split('/')[1]
+            
+            if block_num in lanturn_results:
+                lanturn_results[block_num] = max(lanturn_results[block_num], curr_results[k])
+            else:
+                lanturn_results[block_num] = curr_results[k]  
+        print(f'found {len(lanturn_results.keys())} Lantern results')
+
+        common_keys = np.intersect1d(list(lanturn_results.keys()), list(combo_results.keys()))
+
+        #### plot mev versus block number
+        common_keys = [int(k) for k in common_keys]
+        if sorted_blocknum:
+            common_keys_sorted = np.sort(common_keys)
+        else:
+            lanturn_values = [lanturn_results[str(common_keys[i])] for i in range(len(common_keys))]
+            indices_sorted = np.argsort(lanturn_values)
+            common_keys_sorted = np.asarray(common_keys)[indices_sorted]
+        
+        combo_values_sorted = np.asarray([combo_results[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
+        lanturn_values_sorted =  np.asarray([lanturn_results[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
+        indices_to_keep = [i for i in range(len(common_keys_sorted)) if combo_values_sorted[i] > lanturn_values_sorted[i]+0.1] #range(len(common_keys))#[i for i in range(len(common_keys_sorted)) if combo_values_sorted[i] < 200]    
+
+        plt.clf()
+        fig, (ax, ax2) = plt.subplots(2, 1, sharex=True, figsize=(7,4))
+        # ax.set_yscale('log'), ax2.set_yscale('log')
+        ax.plot(lanturn_values_sorted[indices_to_keep], label='Sushiswap')
+        ax.plot(combo_values_sorted[indices_to_keep], label='Sushiswap + UniswapV2')
+        ax2.plot(lanturn_values_sorted[indices_to_keep], label='Sushiswap')
+        ax2.plot(combo_values_sorted[indices_to_keep], label='Sushiswap + UniswapV2')
+
+        ax2.set_ylim(0, 40)
+        ax.set_ylim(270, 530)
+
+        # hide the spines between ax and ax2
+        ax.spines['bottom'].set_visible(False)
+        ax2.spines['top'].set_visible(False)
+        ax.yaxis.tick_left()
+        ax.tick_params(bottom=False, labelbottom=False)
+        ax2.yaxis.tick_left()
+
+        d = .015 # how big to make the diagonal lines in axes coordinates
+        # arguments to pass plot, just so we don't keep repeating them
+        kwargs = dict(transform=ax.transAxes, color='k', clip_on=False)
+        ax.plot((-d,+d), (-d-0.01,+d-0.01), **kwargs)
+        ax2.plot((-d,+d),(-0.07-d,-0.07+d), **kwargs)
+        # kwargs.update(transform=ax2.transAxes)  # switch to the bottom axes
+        # ax2.plot((1-d,1+d), (-d,+d), **kwargs)
+        # ax2.plot((-d,+d), (-d,+d), **kwargs)
+
+        ax.legend(fontsize=16)
+        ax2.set_xlabel('Block number', fontsize=16)
+        ax2.set_xticks(range(len(indices_to_keep)))
+        xticklabels = []
+        for i, idx in enumerate(indices_to_keep):
+            xticklabels.append(common_keys_sorted[idx] if i%1==0 else '')
+        ax2.set_xticklabels(xticklabels, rotation=45)
+        fig.supylabel('MEV', fontsize=16)
+        # plt.yscale('log')
+        fig.subplots_adjust(hspace=0.1)
+        fname = '{}_combo.png'.format(args.path.replace('artifacts_smooth_', ''))
+        plt.savefig(os.path.join(path_to_save, fname), bbox_inches='tight')
+
+    elif args.section == '5.7':
+        opt_pattern =  '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
+        x_axis = 'time' # or 'n_samples'
+
+        with open(os.path.join(args.path, 'info_summary.yaml'), 'r') as f:
+            mevs = yaml.safe_load(f)
+        with open(os.path.join(args.path, 'times_summary.yaml'), 'r') as f:
+            times = yaml.safe_load(f)
+
+        plt.figure()
+        if x_axis == 'time':
+            t_max = 3600 # 1 hour
+            t_unit = 0.1
+            fig = plt.figure(figsize=(5,3))
+            steps = np.arange(t_unit, t_max, t_unit)
+            percentages = {i:[] for i in steps}
+            for k, mev in mevs.items():
+                if mev < 4.5:
+                    continue
+                with open(os.path.join(args.path, k, opt_pattern, 'history_info.pkl'), 'rb') as f:
+                    logs = pickle.load(f)
+                time_periter = [logs['all_subsamples'][i]['n_subsamples']/44 * times[k] for i in range(len(logs['all_subsamples']))]
+                scores_periter = logs['all_scores']*100./np.max(logs['best_scores'])
+
+                moving_percentage = [scores_periter[0]]
+                moving_time = [time_periter[0]]
+                for t, score in zip(time_periter[1:], scores_periter[1:]):
+                    moving_percentage.append(max(moving_percentage[-1], score))
+                    moving_time.append(moving_time[-1] + t)
+                moving_percentage = [0] + moving_percentage
+                moving_time = [0] + moving_time
+                # plt.plot(moving_time, moving_percentage)
+
+                i = 0
+                for s in steps:
+                    if s <= np.max(moving_time):
+                        if s >= moving_time[i+1]:
+                            i += 1
+                        percentages[s].append(moving_percentage[i])
+                    else:
+                        percentages[s].append(100.)
+
+        else:  # plot score progress versus number of samples
+            n_max_samples = 50000
+            fig = plt.figure(figsize=(5,4))
+            steps = np.arange(1, n_max_samples)
+            percentages = {i:[] for i in steps}
+            for k, mev in mevs.items():
+                if mev < 4.5:
+                    continue
+                with open(os.path.join(args.path, k, opt_pattern, 'history_info.pkl'), 'rb') as f:
+                    logs = pickle.load(f)
+                n_simulations_periter = [logs['all_subsamples'][i]['n_subsamples'] for i in range(len(logs['all_subsamples']))]
+                scores_periter = logs['all_scores']*100./np.max(logs['best_scores'])
+
+                moving_percentage = [scores_periter[0]]
+                moving_sample_count = [n_simulations_periter[0]]
+                for n_samples, score in zip(n_simulations_periter[1:], scores_periter[1:]):
+                    moving_percentage.append(max(moving_percentage[-1], score))
+                    moving_sample_count.append(moving_sample_count[-1] + n_samples)
+                moving_percentage = [0] + moving_percentage
+                moving_sample_count = [0] + moving_sample_count
+                # plt.plot(moving_sample_count, moving_percentage)
+
+                i = 0
+                for s in steps:
+                    if s <= np.max(moving_sample_count):
+                        if s == moving_sample_count[i+1]:
+                            i += 1
+                        percentages[s].append(moving_percentage[i])
+                    else:
+                        percentages[s].append(100.)
+
+        if x_axis == 'time': plt.xscale('log')
+        plt.plot(steps, [np.min(percentages[s]) for s in steps], label='Min')
+        plt.plot(steps, [np.quantile(percentages[s], q=0.25) for s in steps], label='Q1')
+        plt.plot(steps, [np.median(percentages[s]) for s in steps], label='Median')
+        plt.plot(steps, [np.quantile(percentages[s], q=0.75) for s in steps], label='Q3')
+        plt.plot(steps, [np.max(percentages[s]) for s in steps], label='Max')
+        plt.legend()
+        plt.ylabel('MEV Percentile', fontsize=16), plt.xlabel('Time (s)', fontsize=16)
+        plt.savefig(os.path.join(path_to_save, '{}_score_progress_vs_{}.png'.format(args.path.replace('artifacts_smooth_', ''), 'time' if x_axis=='time' else 'nsamples')), bbox_inches='tight')
+
+
+'''        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Optimization')
 
@@ -127,7 +414,6 @@ if __name__ == '__main__':
     #     best_scores.append(scores_to_keep)
 
     #------ find common experiment names
-    # common_keys = [str(i) for i in [13179381, 13525407, 13262636, 13420743, 13519520, 13539852, 13539877, 13501761, 13526069, 13406200, 13022130, 13529335, 13504619, 13450855, 13076476, 13285119, 13103508, 13235453, 13115319, 13534463, 13119385, 13450863, 13236404, 13457441, 13179367, 13142903, 13238591, 13119472, 13486527, 13121478, 13491910, 13389694, 13377448, 13450892, 13184922, 13536521, 13185021, 13118320, 13323340, 13359998, 13075089, 13450883]]
     common_keys = np.asarray(list(best_scores[0].keys()))
     for i in range(2, len(best_scores)):
         common_keys = np.intersect1d(common_keys, list(best_scores[i].keys()))
@@ -212,6 +498,7 @@ if __name__ == '__main__':
 
     if args.flashbots:
         best_scores.pop(-1) #remove flashbots logs
+    
     #------ plot the percentage mev per sample count plots
     status = []
     count = 0
@@ -259,3 +546,18 @@ if __name__ == '__main__':
     plt.ylabel('mean % of maximum MEV')
     plt.savefig(os.path.join(path_to_save, 'score_{}.png'.format('reorder' if args.reorder else 'alpha' )))
 
+'''
+# path_to_artifacts = 'artifacts_smooth_sushiswap'
+# opt_pattern =  '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
+
+# with open(os.path.join(path_to_artifacts, 'info_summary.yaml'), 'r') as f:
+#         mevs = yaml.safe_load(f)
+# for k, v in mevs.items():
+#     if mev < 4.5:
+#         continue
+
+#     with open(os.path.join(path_to_artifacts, k, opt_pattern, 'history_info.pkl'), 'rb') as f:
+#         logs = pickle.load(f)
+
+#     n_simulations_periter = [logs['all_subsamples'][i]['n_subsamples'] for i in range(len(logs['all_subsamples']))]
+    # scores_periter = logs['best_scores']*100./np.max(logs['best_scores'])

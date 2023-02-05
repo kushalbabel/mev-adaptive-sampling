@@ -66,6 +66,11 @@ class MEV_evaluator(object):
         logging.info(datum)
         mev = simulate(datum, port_id, best=best, logfile=logfile)
 
+        # if mev is None:
+        #     with open(os.path.join('nan_problems',f'sample_{np.random.randint(100)}'), 'w') as flog:
+        #         for tx in datum:
+        #             flog.write('{}\n'.format(tx.strip()))
+
         return mev
 
 
@@ -205,7 +210,9 @@ class Reorder_evaluator(object):
         print('maximum MEV:', best_mev)
         print('-------------------------------------')
         
-        return best_mev, {p_name: v for p_name, v in zip(params, best_sample)}
+        subsample_info = {'n_subsamples':len(sampler.all_samples)}
+        subsample_info.update({'variables': {p_name: v for p_name, v in zip(params, best_sample)}})
+        return best_mev, subsample_info
 
 
 def main(args, transaction, grid_search=False):
@@ -483,7 +490,7 @@ def main(args, transaction, grid_search=False):
 
                 #---------------- Run Sampling
                 print('=> Starting reordering optimization')
-                best_order, best_mev, best_variables = sampler.run_sampling(num_samples=args.num_samples, n_iter=args.n_iter, early_stopping=10, 
+                best_order, best_mev, subsample_info = sampler.run_sampling(num_samples=args.num_samples, n_iter=args.n_iter, early_stopping=10, 
                                                                             save_path=args.save_path, param_names=None, verbose=True)
             else:
                 sampler = RandomOrder_sampler(length=len(transactions)-1, minimum_num_good_samples=int(0.5*args.num_samples), 
@@ -492,8 +499,8 @@ def main(args, transaction, grid_search=False):
                                         swap_method=args.swap_method, groundtruth_order=gt_order)
                 #---------------- Run Sampling
                 print('=> Starting reordering optimization')
-                best_order, best_mev, best_variables = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
-                                                    alpha_max=args.alpha_max, early_stopping=10, save_path=args.save_path, 
+                best_order, best_mev, subsample_info = sampler.run_sampling(evaluator.evaluate, num_samples=args.num_samples, n_iter=args.n_iter, minimize=False, 
+                                                    alpha_max=args.alpha_max, early_stopping=5, save_path=args.save_path, 
                                                     n_parallel=args.n_parallel, plot_contour=False, executor=mp.Pool, param_names=None, verbose=True)
             if best_order is None:
                 with open(os.path.join(dir_to_save, log_file), 'a') as f:
@@ -502,6 +509,7 @@ def main(args, transaction, grid_search=False):
                 return
                     
             # check that the variable values are correct
+            best_variables = subsample_info['variables']
             vars = list(best_variables.keys())
             if evaluator.use_repr:
                 best_order = evaluator.translate_sample(best_order)
@@ -572,34 +580,38 @@ if __name__ == '__main__':
     args = parser.parse_args()  
     # np.random.seed(args.seed)
 
+    invalid_problems = []
+    if args.ignore is not None:
+        with open(args.ignore, 'r') as f:
+            invalid_problems = f.readlines()
+
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
+                        if file_pattern in f]
                         # if file_pattern in f and int(os.path.basename(dp))>=14.e6] 
-                        if file_pattern in f and int(os.path.basename(dp))>=13e6 and int(os.path.basename(dp))<14.e6]
+                        # if file_pattern in f and int(os.path.basename(dp))>=13e6 and int(os.path.basename(dp))<14.e6]
         all_files = np.sort(all_files)
         print(f'found {len(all_files)} files for optimization')
-    
-        invalid_problems = None
-        if args.ignore:
-            with open(args.ignore, 'r') as f:
-                invalid_problems = f.readlines()
+
+        # with open('artifacts_smooth_sushiswap/info_summary.yaml', 'r') as f:
+        #     sushiswap_results = yaml.safe_load(f)
 
         for transaction in all_files:
             if f'{transaction}\n' in invalid_problems:
                 print(f'-------------- ignoring {transaction}')
                 continue
 
-            main(args, transaction, grid_search=args.grid)
-            # # try:
-            # #     main(args, transaction, grid_search=args.grid)
+            # p_key = '{}/{}'.format(transaction.split('/')[-3], transaction.split('/')[-2])
+            # if not p_key in sushiswap_results.keys():
+            #     print(f'-------------- ignoring {p_key}')
+            #     continue
 
-            # # except:
-            # #     print(f'======== error occured when running {transaction}')
-            # #     continue
+            main(args, transaction, grid_search=args.grid)
     else:
-        assert os.path.isfile(args.transactions)
-        main(args, args.transactions, grid_search=args.grid)
+        if not f'{args.transactions}\n' in invalid_problems:
+            assert os.path.isfile(args.transactions)
+            main(args, args.transactions, grid_search=args.grid)
 
 
 
