@@ -9,6 +9,9 @@ uniswap_router_abi = json.loads(path.open('r').read()) #TODO: weird abs path, ma
 uniswap_router_contract = w3.eth.contract(abi=uniswap_router_abi, address='0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D')
 sushiswap_router_contract = w3.eth.contract(abi=uniswap_router_abi, address='0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F')
 
+path = Path(__file__).parent / "uniswapv3_router_abi.json"
+uniswapv3_router_abi = json.loads(path.open('r').read()) #TODO: weird abs path, make pretty
+uniswapv3_router_contract = w3.eth.contract(abi=uniswapv3_router_abi, address='0xE592427A0AEce92De3Edee1F18E0157C05861564')
 
 def get_reserves(exchange_addr):
     data = {}

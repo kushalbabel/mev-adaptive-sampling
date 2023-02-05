@@ -2,9 +2,9 @@ import csv
 import subprocess
 from subprocess import Popen, PIPE
 
+block_times = '/data/latest-data/block_times.csv'
 data_path = '/home/kb742/mev-adaptive-sampling/data'
 binance_prices_path = f'{data_path}/prices-binance/'
-block_times = f'{data_path}/block_times.csv'
 token_names = f'{data_path}/token_names.csv'
 
 
