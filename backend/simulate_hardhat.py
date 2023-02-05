@@ -7,7 +7,7 @@ import logging
 from copy import deepcopy
 from contracts import utils
 from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract
-from contracts.tokens import token_contracts, erc20_abi
+from contracts.tokens import token_contracts, erc20_abi, weth_abi
 from web3 import Web3
 from collections import defaultdict
 import logging
@@ -37,7 +37,7 @@ USER1_KEY = '75534742a7f736a1e958c7b2bc790f45819b22eaf25d666cd71badc7dfd30663'
 USER2_KEY = 'f0a05ef2d2bcc96062e9b404f453100ea7ae61d4c8acc0c09465cb82724e9659'
 USER3_KEY = '36089ccdce092179345ee6df533f1be3ff66d280806aee8a3d0ff6289442185d'
 KEYS = {MINER_ADDRESS: MINER_KEY, USER_ADDRESS: USER_KEY, USER1_ADDRESS: USER1_KEY, USER2_ADDRESS: USER2_KEY, USER3_ADDRESS: USER3_KEY}
-MINER_CAPITAL = 1000*1e18
+MINER_CAPITAL = 2000*1e18
 
 nonces = defaultdict(lambda: 0)
 prices = dict()
@@ -210,11 +210,10 @@ def parse_and_sign_contract_tx(elements, sender, w3):
         contract = sushiswap_router_contract
     elif to_address == 'UniswapV3Router':
         contract = uniswapv3_router_contract
-        if value > 0:
-            params[5] = int(params[5]) * 1e18
     else:
         contract = token_contracts[to_address]
     calldata = utils.encode_function_call1(contract, func_name, params)
+    
     #TODO : dynamic vs normal tx, take care at London boundary, or always use old after fetching basefees
     dynamic_tx = {
         'to': contract.address,
@@ -319,6 +318,7 @@ def setup(bootstrap_line):
     for token in approved_tokens:
         if token.startswith('0x'):
             token_contracts[token] = w3.eth.contract(abi=erc20_abi, address=token)
+    token_contracts[WETH] = w3.eth.contract(abi=weth_abi, address=WETH)
     prices = dict()
     decimals = dict()
     
@@ -363,8 +363,10 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
         simulate_tx(approve_tx, w3) #1e27
         approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
         simulate_tx(approve_tx, w3) #1e27
-
-    
+        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
+        simulate_tx(approve_tx, w3) #1e27
+        approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
+        simulate_tx(approve_tx, w3) #1e27
 
     # Execute transactions
     for line in lines[1:]:
