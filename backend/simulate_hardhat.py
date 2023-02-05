@@ -6,7 +6,7 @@ import sys
 import logging
 from copy import deepcopy
 from contracts import utils
-from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract
+from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi
 from contracts.tokens import token_contracts, erc20_abi, weth_abi
 from web3 import Web3
 from collections import defaultdict
@@ -138,6 +138,21 @@ def getAmountOutv2(token_addr, router_contract, in_amount):
     else:
         # TODO log response
         return 0
+
+def get_best_fee_pool(token_addr, remaining_balance, w3):
+    fee_options = [500, 3000, 10000]
+    quoter_contract = w3.eth.contract(abi=uniswapv3_quoter_abi, address='0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6')
+    max_quote = 0
+    best_fee = fee_options[0]
+    for fee in fee_options:
+        try:
+            amount = quoter_contract.functions.quoteExactInputSingle(token_addr, WETH, fee, remaining_balance,0).call()
+            if amount > max_quote:
+                best_fee = fee
+                max_quote = amount
+        except ValueError:
+            pass
+    return best_fee
 
 
 # in eth
@@ -417,7 +432,8 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
             # else:
             #     automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-{}],miner,1800000000'.format(remaining_balance, token_addr, WETH)
             #TODO : dont hardcode fees, check which fee pool is the most profitable
-            automatic_tx = '1,miner,UniswapV3Router,0,exactInputSingle,{},{},{},miner,1800000000,{},0,0'.format(token_addr, WETH, 500, remaining_balance)
+            fee_pool = get_best_fee_pool(token_addr, remaining_balance, w3)
+            automatic_tx = '1,miner,UniswapV3Router,0,exactInputSingle,{},{},{},miner,1800000000,{},0,0'.format(token_addr, WETH, fee_pool, remaining_balance)
             simulate_tx(automatic_tx, w3)
         # mine the block to execute automatic_tx
         mine_block()    

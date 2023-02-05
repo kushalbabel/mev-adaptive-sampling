@@ -13,6 +13,9 @@ path = Path(__file__).parent / "uniswapv3_router_abi.json"
 uniswapv3_router_abi = json.loads(path.open('r').read()) #TODO: weird abs path, make pretty
 uniswapv3_router_contract = w3.eth.contract(abi=uniswapv3_router_abi, address='0xE592427A0AEce92De3Edee1F18E0157C05861564')
 
+path = Path(__file__).parent / "uniswapv3_quoter_abi.json"
+uniswapv3_quoter_abi = json.loads(path.open('r').read()) #TODO: weird abs path, make pretty
+
 def get_reserves(exchange_addr):
     data = {}
     data['jsonrpc'] = '2.0'
