@@ -44,5 +44,8 @@ def typify(params, fn):
     return typed_params
 
 def encode_function_call1(contract, fn_name, params):
+    # ugly uniswapv3, figure out encoding of tuples
+    if fn_name == 'exactInputSingle':
+        return "0x414bf389" + params[0][2:].lower().zfill(64) + params[1][2:].lower().zfill(64) + hex(int((params[2])))[2:].zfill(64) + params[3][2:].lower().zfill(64)+ hex(int((params[4])))[2:].zfill(64) + hex(int((params[5])))[2:].zfill(64) + hex(int((params[6])))[2:].zfill(64) + hex(int((params[7])))[2:].zfill(64)
     fn = contract.find_functions_by_name(fn_name)[0]
     return contract.encodeABI(fn_name = fn_name, args=typify(params, fn))
