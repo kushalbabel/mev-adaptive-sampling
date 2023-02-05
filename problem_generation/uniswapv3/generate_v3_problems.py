@@ -27,4 +27,3 @@ for line in lines[::-1]:
     cmd="python3 process_v3.py -f /data/latest-data/uniswapv3-separated/{}.csv  -t {} -sb {} -eb {} -o ../../eth_token_tests_uniswapv3/{}".format(token, token, block, int(block)+1, token)
     os.system(cmd)
     generated.add((block, token))
-    break

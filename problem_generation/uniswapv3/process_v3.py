@@ -74,12 +74,10 @@ output = ''
 for block in range(int(args.start_block), int(args.end_block)):
     # print(args.file)
     command = "grep '^" + str(block) + ",' " + args.file
-    print(command)
     pipe = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     output += str(pipe.stdout.read() + pipe.stderr.read(), "utf-8")
 
 lines = output.strip().split('\n')
-print(lines)
 
 block_to_tx = defaultdict(lambda : set())
 for line in lines:
@@ -93,11 +91,22 @@ for line in lines:
 token_hex = Web3.toChecksumAddress(args.token)
 
 # print(token_hex)
-fee = 500
-swap_template1 = '1,miner,UniswapV3Router,{},exactInputSingle,\
-0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},{},miner,1800000000,{},0,0'.format('alpha1', token_hex,fee,'alpha1')
+swap_template1 = '1,miner,UniswapV3Router,0,exactInputSingle,\
+0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},{},miner,1800000000,{},0,0'.format(token_hex,500,'alpha1')
+swap_template2 = '1,miner,UniswapV3Router,0,exactInputSingle,\
+0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},{},miner,1800000000,{},0,0'.format(token_hex,3000,'alpha2')
+swap_template3 = '1,miner,UniswapV3Router,0,exactInputSingle,\
+0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},{},miner,1800000000,{},0,0'.format(token_hex,10000,'alpha3')
 
-insertions = [swap_template1]
+swap_template4 = '1,miner,UniswapV3Router,0,exactInputSingle,\
+{},0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},miner,1800000000,{},0,0'.format(token_hex,500,'alpha4')
+swap_template5 = '1,miner,UniswapV3Router,0,exactInputSingle,\
+{},0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},miner,1800000000,{},0,0'.format(token_hex,3000,'alpha5')
+swap_template6 = '1,miner,UniswapV3Router,0,exactInputSingle,\
+{},0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,{},miner,1800000000,{},0,0'.format(token_hex,10000,'alpha6')
+
+
+insertions = [swap_template1,swap_template2,swap_template3,swap_template4,swap_template5,swap_template6]
 
 dir = args.output_dir
 
