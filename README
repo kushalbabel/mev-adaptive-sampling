@@ -11,3 +11,4 @@ To check if a client is stuck:
 Info about problem generation:
 eth_token_tests -> Sushiswap problems
 eth_token_tests_uniswapv2 -> UniswapV2 problems
+eth_token_tests_uniswapv3 -> UniswapV3 problems

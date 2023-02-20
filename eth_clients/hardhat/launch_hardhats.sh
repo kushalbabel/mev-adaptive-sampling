@@ -1,5 +1,5 @@
 #!/bin/bash
-CORES=44
+CORES=40
 for ((i=0;i<CORES;i++)); do
 	PORT=$(( 8547 + $i ))
 	cmd="nohup npx hardhat node --port $PORT &> logs/hardhat.$PORT &"
