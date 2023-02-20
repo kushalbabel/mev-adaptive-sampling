@@ -20,6 +20,7 @@ def sushiswap_to_uniswap(sushiswap_addr):
     target_row = df[(df["exchange"] == uniswapv2) & (df["token0"] == a) & (df["token1"] == b) ].iloc[0]
     return target_row.pair
 
+# uniswapv3 is addressed by the token
 def sushiswap_to_uniswapv3(sushiswap_addr):
     row = df[df["pair"] == sushiswap_addr].iloc[0]
     a = row.token0
@@ -33,6 +34,22 @@ def uniswapv3_to_sushiswap(uniswapv3_addr):
     target_row = df[(df["exchange"] == sushiswap) & ((df["token0"] == eth) & (df["token1"] == uniswapv3_addr) 
                     | (df["token0"] == uniswapv3_addr) & (df["token1"] == eth))].iloc[0]
     return target_row.pair
+
+# uniswapv3 is addressed by the token
+def uniswapv2_to_uniswapv3(uniswapv2_addr):
+    row = df[df["pair"] == uniswapv2_addr].iloc[0]
+    a = row.token0
+    b = row.token1
+    if a == eth:
+        return b
+    elif b == eth:
+        return a
+
+def uniswapv3_to_uniswapv2(uniswapv3_addr):
+    target_row = df[(df["exchange"] == uniswapv2) & ((df["token0"] == eth) & (df["token1"] == uniswapv3_addr) 
+                    | (df["token0"] == uniswapv3_addr) & (df["token1"] == eth))].iloc[0]
+    return target_row.pair
+
 
 # print(uniswapv3_to_sushiswap('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'))
 # print(sushiswap_to_uniswapv3('0x397ff1542f962076d0bfe58ea045ffa2d347aca0'))
