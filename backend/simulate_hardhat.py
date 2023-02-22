@@ -27,16 +27,8 @@ WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
 FORK_URL = 'http://localhost:8547'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
-USER_ADDRESS = '0x42bD55c6502E586d66020Ece3fdA53Cb73D73b6D'
-USER1_ADDRESS = '0x183a57b895B8b4604E05C4886b26d9c710408c99'
-USER2_ADDRESS = '0x76C2BD3aE2CA0F63A385259444cB11cf4Ec8e5ad'
-USER3_ADDRESS = '0x15b118025c9d07522d1e0e6f0E15421741A44489'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
-USER_KEY = 'd8d14136a29ac2d003983781f28b120fd144507f600876ad6479b92d747146ec'
-USER1_KEY = '75534742a7f736a1e958c7b2bc790f45819b22eaf25d666cd71badc7dfd30663'
-USER2_KEY = 'f0a05ef2d2bcc96062e9b404f453100ea7ae61d4c8acc0c09465cb82724e9659'
-USER3_KEY = '36089ccdce092179345ee6df533f1be3ff66d280806aee8a3d0ff6289442185d'
-KEYS = {MINER_ADDRESS: MINER_KEY, USER_ADDRESS: USER_KEY, USER1_ADDRESS: USER1_KEY, USER2_ADDRESS: USER2_KEY, USER3_ADDRESS: USER3_KEY}
+KEYS = {MINER_ADDRESS: MINER_KEY}
 MINER_CAPITAL = 2000*1e18
 
 nonces = defaultdict(lambda: 0)
@@ -152,7 +144,7 @@ def get_best_fee_pool(token_addr, remaining_balance, w3):
                 max_quote = amount
         except ValueError:
             pass
-    return best_fee
+    return best_fee, max_quote
 
 
 # in eth
@@ -171,6 +163,21 @@ def get_mev_cex(remaining_balances):
         token_balance = remaining_balances[token] / (10**decimals[token])
         ret += token_balance* prices[token] / prices['eth']
     return ret
+
+def get_mev_dex(token_addr, remaining_balance, w3, involved_dexes):
+    if 'uniswapv2' in involved_dexes:
+        uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
+    else:
+        uniswapv2_out_amount = 0
+    if 'sushiswap' in involved_dexes:
+        sushiswap_out_amount = getAmountOutv2(token_addr, sushiswap_router_contract, remaining_balance)
+    else:
+        sushiswap_out_amount = 0
+    if 'uniswapv3' in involved_dexes:
+        fee_pool, uniswapv3_out_amount = get_best_fee_pool(token_addr, remaining_balance, w3)
+    else:
+        uniswapv3_out_amount = 0
+    return get_mev() + max(uniswapv3_out_amount, uniswapv2_out_amount, sushiswap_out_amount) / 1e18
 
 def get_transaction(tx_hash):
     data = {}
@@ -299,10 +306,6 @@ def get_token_balance(user_addr, token_addr):
 def simulate_tx(line, w3):
     global nonces
     line = line.replace('miner', MINER_ADDRESS)
-    line = line.replace('user3', USER3_ADDRESS)
-    line = line.replace('user2', USER2_ADDRESS)
-    line = line.replace('user1', USER1_ADDRESS)
-    line = line.replace('user', USER_ADDRESS)
     elements = line.strip().split(',')
     tx_type = elements[0]
     sender = elements[1]
@@ -353,7 +356,7 @@ def setup(bootstrap_line):
         pass
 
 
-def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
+def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
     global nonces, FORK_URL
     FORK_URL = 'http://localhost:{}'.format(8547+port_id)
     w3 = Web3(Web3.HTTPProvider(FORK_URL))
@@ -372,16 +375,19 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     
     # Preparation transactions
     for token in approved_tokens:
-        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
-        # simulate_tx(approve_tx, w3) #1e27
-        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
-        # simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
-        simulate_tx(approve_tx, w3) #1e27
+        if 'sushiswap' in involved_dexes:
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+        if 'uniswapv2' in involved_dexes:
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+        if 'uniswapv3' in involved_dexes:
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
+            simulate_tx(approve_tx, w3) #1e27
 
     # Execute transactions
     for line in lines[1:]:
@@ -425,6 +431,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
             remaining_balance = remaining_balances[token_addr]
             if remaining_balance <= 0:
                 continue
+            mev = max(mev, BLOCKREWARD + get_mev_dex(token_addr, remaining_balance, w3, involved_dexes))  # blockreward for parity with dex
             # uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
             # sushiswap_out_amount = getAmountOutv2(token_addr, sushiswap_router_contract, remaining_balance)
             # if sushiswap_out_amount > uniswapv2_out_amount:
@@ -432,12 +439,12 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
             # else:
             #     automatic_tx = '1,miner,UniswapV2Router,0,swapExactTokensForETH,{},0,[{}-{}],miner,1800000000'.format(remaining_balance, token_addr, WETH)
             #TODO : dont hardcode fees, check which fee pool is the most profitable
-            fee_pool = get_best_fee_pool(token_addr, remaining_balance, w3)
-            automatic_tx = '1,miner,UniswapV3Router,0,exactInputSingle,{},{},{},miner,1800000000,{},0,0'.format(token_addr, WETH, fee_pool, remaining_balance)
-            simulate_tx(automatic_tx, w3)
+            # fee_pool = get_best_fee_pool(token_addr, remaining_balance, w3)
+            # automatic_tx = '1,miner,UniswapV3Router,0,exactInputSingle,{},{},{},miner,1800000000,{},0,0'.format(token_addr, WETH, fee_pool, remaining_balance)
+            # simulate_tx(automatic_tx, w3)
         # mine the block to execute automatic_tx
-        mine_block()    
-        mev = max(mev, get_mev())
+        # mine_block()
+        # mev = max(mev, get_mev())
 
     # store the best sample
     if best:
@@ -490,5 +497,5 @@ if __name__ == '__main__':
     print("setting up...", lines[0])
     setup(lines[0])
     print("simulating...")
-    mev = simulate(lines, port_id, False, '', args.settlement)
+    mev = simulate(lines, port_id, ['uniswapv2', 'uniswapv3'], False, '', args.settlement)
     print(mev)

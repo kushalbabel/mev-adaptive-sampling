@@ -48,10 +48,10 @@ for log in logsdict:
     amount1_delta = int.from_bytes(bytes.fromhex(data[64:128]) , byteorder='big', signed=True)
     # print(amount0_in, amount1_in, address, token0, token1)
     if token0 == eth:
-        if abs(amount0_delta) > 5e20:
+        if abs(amount0_delta) > 1e21:
             fout.write("{},{},{}\n".format(address, block_number,abs(amount0_delta)))
     elif token1 == eth:
-        if abs(amount1_delta) > 5e20:
+        if abs(amount1_delta) > 1e21:
             fout.write("{},{},{}\n".format(address, block_number,abs(amount1_delta)))
     parsed += 1
     if  (parsed % 10000 == 0):
