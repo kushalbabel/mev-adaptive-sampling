@@ -5,15 +5,15 @@ import argparse
 import sys
 import logging
 from copy import deepcopy
-from contracts import utils
-from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi
-from contracts.tokens import token_contracts, erc20_abi, weth_abi
+from backend.contracts import utils
+from backend.contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi
+from backend.contracts.tokens import token_contracts, erc20_abi, weth_abi
 from web3 import Web3
 from collections import defaultdict
 import logging
 import time
 from datetime import datetime
-from utils import get_price
+from backend.utils import get_price
 
 simlogger = logging.getLogger(__name__)
 sim_log_handler = logging.FileHandler('output.log')

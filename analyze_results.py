@@ -1,4 +1,5 @@
 import os
+import math
 import argparse
 import pandas as pd
 import re
@@ -35,14 +36,15 @@ if __name__ == '__main__':
     if args.section == '5.3.1':
         #### load flashbots data
         # path_to_flashbots = '/home/kb742/mev-adaptive-sampling/data/flashbots_baseline.csv'
-        path_to_flashbots = 'flashbots_baseline_for_problems.csv'   # fair baseline
+        # path_to_flashbots = 'flashbots_baseline_for_problems.csv'   # fair baseline
+        path_to_flashbots = 'flashbots_baseline_for_uniswapv3_problems.csv'
         flashbots_data = pd.read_csv(path_to_flashbots)
         flashbots_logs_ = {str(flashbots_data['blocknumber'][idx]): flashbots_data['fb_mev'][idx] + block_reward for idx in range(len(flashbots_data.index))}
         if '/' in list(flashbots_logs_.keys())[0]:
             flashbots_logs = {}
             for k, v in flashbots_logs_.items():
-                if ('sushiswap' in args.path and 'uniswapv2' in k) or \
-                    ('sushiswap' not in args.path and not 'uniswapv2' in k):
+                if ('sushiswap' in args.path and 'uniswap' in k) or \
+                    ('sushiswap' not in args.path and not 'uniswap' in k):
                     continue
                 new_k = k.split('/')[-2]
                 if new_k in flashbots_logs:
@@ -72,8 +74,13 @@ if __name__ == '__main__':
                 flashbots_logs[k] = block_reward
 
         #### remove flashbots problems with more transactions than lanturn
-        assert 'sushiswap' in args.path or 'uniswapv2' in args.path, 'contract name (sushiswap or uniswapv2) must be in the path argument'
-        path_to_invalid_problems = 'analysis/{}_negatives'.format('sushiswap' if 'sushiswap' in args.path else 'uniswapv2')
+        if 'sushiswap' in args.path:
+            contract_name = 'sushiswap'
+        elif 'uniswapv2' in args.path:
+            contract_name = 'uniswapv2'
+        else:
+            contract_name = 'uniswapv3'
+        path_to_invalid_problems = f'analysis/{contract_name}_negatives'
         with open(path_to_invalid_problems, 'r') as f:
             invalid_problems = f.readlines()
         keys_to_remove = []
@@ -116,7 +123,7 @@ if __name__ == '__main__':
         indices_to_keep = [i for i in range(len(common_keys_sorted)) if lanturn_values_sorted[i] >= block_reward + 1.]    
 
         plt.clf()
-        fig, ax = plt.subplots(figsize=(20, 4))
+        fig, ax = plt.subplots(figsize=(12, 4))
         plt.plot(lanturn_values_sorted[indices_to_keep], label='Lanturn')
         plt.plot(flashbots_values_sorted[indices_to_keep], label='Flashbots')
         plt.legend(fontsize=16)
@@ -124,7 +131,7 @@ if __name__ == '__main__':
         ax.set_xticks(range(len(indices_to_keep)))
         xticklabels = []
         for i, idx in enumerate(indices_to_keep):
-            xticklabels.append(common_keys_sorted[idx] if i%3==0 else '')
+            xticklabels.append(common_keys_sorted[idx] if i%2==0 else '')
         ax.set_xticklabels(xticklabels, rotation=60)
         plt.ylabel('MEV', fontsize=16)
         plt.yscale('log')
@@ -297,6 +304,121 @@ if __name__ == '__main__':
         plt.legend()
         plt.ylabel('MEV Percentile', fontsize=16), plt.xlabel('Time (s)', fontsize=16)
         plt.savefig(os.path.join(path_to_save, '{}_score_progress_vs_{}.png'.format(args.path.replace('artifacts_smooth_', ''), 'time' if x_axis=='time' else 'nsamples')), bbox_inches='tight')
+
+    elif args.section == 'random':
+        rand_pattern =  '50iter_44nsamples_1.0random_0.0local_0.0_cross'
+        ours_pattern = '50iter_44nsamples_0.2random_0.4local_0.4_cross'
+        x_axis = 'n_samples' # or 'time'
+
+        with open(os.path.join(args.path, 'info_summary_alphas_random.yaml'), 'r') as f:
+            mevs_random = yaml.safe_load(f)
+        with open(os.path.join(args.path, 'info_summary_alphas_adaptive.yaml'), 'r') as f:
+            mevs_ours = yaml.safe_load(f)
+        with open(os.path.join(args.path, 'times_summary.yaml'), 'r') as f:
+            times = yaml.safe_load(f)
+
+        plt.figure()
+        if x_axis == 'time':
+            t_max = 300
+            t_unit = 0.1
+            fig = plt.figure(figsize=(5,3))
+            steps = np.arange(t_unit, t_max, t_unit)
+            percentages_random = {i:[] for i in steps}
+            percentages_ours = {i:[] for i in steps}
+            for k, mev in mevs_random.items():
+                if not k in times:
+                    continue
+
+                with open(os.path.join(args.path, k, rand_pattern, 'history_info_0.pkl'), 'rb') as f:
+                    logs_random = pickle.load(f)
+                with open(os.path.join(args.path, k, ours_pattern, 'history_info_0.pkl'), 'rb') as f:
+                    logs_ours = pickle.load(f)
+
+                time_periter_random = len(logs_random['all_samples'])/44 * times[k]
+                time_periter_ours = len(logs_ours['all_samples'])/44 * times[k]
+                scores_periter_random = [np.max(logs_random['all_scores'][i:i+44]) for i in range(math.ceil(len(logs_random['all_scores'])/44))]
+                scores_periter_ours = [np.max(logs_ours['all_scores'][i:i+44]) for i in range(math.ceil(len(logs_ours['all_scores'])/44))]
+
+                moving_mev_random = [scores_periter_random[0]]
+                moving_time_random = [time_periter_random]
+                for score in scores_periter_random[1:]:
+                    moving_mev_random.append(max(moving_mev_random[-1], score))
+                    moving_time_random.append(moving_time_random[-1] + time_periter_random)
+                moving_mev_random = [0] + moving_mev_random
+                moving_time_random = [0] + moving_time_random
+
+                print(moving_mev_random)
+                print(moving_time_random)
+
+                moving_mev_ours = [scores_periter_ours[0]]
+                moving_time_ours = [time_periter_ours]
+                for score in scores_periter_ours[1:]:
+                    moving_mev_ours.append(max(moving_mev_ours[-1], score))
+                    moving_time_ours.append(moving_time_ours[-1] + time_periter_ours)
+                moving_mev_ours = [0] + moving_mev_ours
+                moving_time_ours = [0] + moving_time_ours
+
+                i = 0
+                for s in steps:
+                    if s <= np.max(moving_time_random):
+                        if s >= moving_time_random[i+1]:
+                            i += 1
+                        percentages_random[s].append(moving_mev_random[i])
+                        print(len(percentages_random[s]))
+                    else:
+                        percentages_random[s].append(percentages_random[s][-1])
+                i = 0
+                for s in steps:
+                    if s <= np.max(moving_time_ours):
+                        if s >= moving_time_ours[i+1]:
+                            i += 1
+                        percentages_ours[s].append(moving_mev_ours[i])
+                    else:
+                        percentages_ours[s].append(percentages_ours[s][-1])
+
+                exit()
+
+        else:  # plot score progress versus number of samples
+            n_max_samples = 50 * 44
+            fig = plt.figure(figsize=(5,3))
+            steps = np.arange(n_max_samples)
+            percentages_random = {i:[] for i in steps}
+            percentages_ours = {i:[] for i in steps}
+            for k in mevs_random.keys():
+                if not k in times:
+                    continue
+                with open(os.path.join(args.path, k, rand_pattern, 'history_info_0.pkl'), 'rb') as f:
+                    logs_random = pickle.load(f)
+                with open(os.path.join(args.path, k, ours_pattern, 'history_info_0.pkl'), 'rb') as f:
+                    logs_ours = pickle.load(f)
+
+                moving_score_random = [logs_random['all_scores'][0]]
+                moving_score_ours = [logs_ours['all_scores'][0]]
+                for s_r in logs_random['all_scores'][1:]:
+                    moving_score_random.append(max(moving_score_random[-1], s_r))
+                for s_o in logs_ours['all_scores'][1:]:
+                    moving_score_ours.append(max(moving_score_ours[-1], s_o))
+                moving_score_random = [0] + moving_score_random
+                moving_score_ours = [0] + moving_score_ours
+
+                for i, s in enumerate(steps):
+                    if s <= len(logs_random['all_samples']):
+                        percentages_random[s].append(moving_score_random[i])
+                    else:
+                        percentages_random[s].append(np.max(logs_random['all_scores']))
+
+                for i, s in enumerate(steps):
+                    if s <= len(logs_ours['all_samples']):
+                        percentages_ours[s].append(moving_score_ours[i])
+                    else:
+                        percentages_ours[s].append(np.max(logs_ours['all_scores']))
+
+        if x_axis == 'time': plt.xscale('log')
+        plt.plot(steps, [np.max(percentages_random[s]) for s in steps], label='Random')
+        plt.plot(steps, [np.max(percentages_ours[s]) for s in steps], label='Lanturn')
+        plt.legend()
+        plt.ylabel('MEV', fontsize=16), plt.xlabel('# samples', fontsize=16)
+        plt.savefig(os.path.join(path_to_save, 'random_vs_lanturn_{}.png'.format('time' if x_axis=='time' else 'nsamples')), bbox_inches='tight')
 
 
 '''        

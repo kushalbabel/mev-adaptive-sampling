@@ -169,50 +169,50 @@ if __name__ == '__main__':
     #             shutil.copytree(os.path.join(curr_path, p_name), os.path.join(dst, eth_pair, p_name), dirs_exist_ok=True)
 
     ##### code snippet for saving info_summary files
-    # path_to_results = 'artifacts_smooth'
-    # pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor' #'10iter_15nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
-    # curr_results, eth_pairs = gather_results(path_to_results, pattern=pattern)
-    # summary_dict = {}
-    # for k, v in curr_results.items():
-    #     eth_pair = eth_pairs[k]
-    #     summary_dict[f'{eth_pair}/{k}'] = v[-1]
-    # print(summary_dict)
-    # with open(os.path.join(path_to_results, 'info_summary.yaml'), 'w') as f:
-    #     yaml.dump(summary_dict, f)
-
-
-    ##### code snippet for saving per-sample simulation time
     path_to_results = 'artifacts_smooth'
-    pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
-    n_repeat = 44
+    pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor' #'50iter_44nsamples_0.2random_0.4local_0.4_cross' #'5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor' #'10iter_15nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
+    curr_results, eth_pairs = gather_results(path_to_results, pattern=pattern)
+    summary_dict = {}
+    for k, v in curr_results.items():
+        eth_pair = eth_pairs[k]
+        summary_dict[f'{eth_pair}/{k}'] = v[-1]
+    print(summary_dict)
+    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'a') as f:
+        yaml.dump(summary_dict, f)
 
-    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'r') as f:
-        orig_mevs = yaml.safe_load(f)
 
-    paths = gather_result_paths(path_to_results, pattern, fname='transactions_optimized')
-    times_summary = {}
-    for p in paths:
-        with open(p, 'r') as transactions_f:
-            transactions = transactions_f.readlines()
-        eth_pair_idx = re.search('(0x[a-z0-9]+)', p).span()[1]
-        eth_pair = re.search('(0x[a-z0-9]+)', p).group(1)
-        problem_name = p[eth_pair_idx:].split('/')[1]
-        k = f'{eth_pair}/{problem_name}'
+    # ##### code snippet for saving per-sample simulation time
+    # path_to_results = 'artifacts_smooth'
+    # pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
+    # n_repeat = 44
+
+    # with open(os.path.join(path_to_results, 'info_summary.yaml'), 'r') as f:
+    #     orig_mevs = yaml.safe_load(f)
+
+    # paths = gather_result_paths(path_to_results, pattern, fname='transactions_optimized')
+    # times_summary = {}
+    # for p in paths:
+    #     with open(p, 'r') as transactions_f:
+    #         transactions = transactions_f.readlines()
+    #     eth_pair_idx = re.search('(0x[a-z0-9]+)', p).span()[1]
+    #     eth_pair = re.search('(0x[a-z0-9]+)', p).group(1)
+    #     problem_name = p[eth_pair_idx:].split('/')[1]
+    #     k = f'{eth_pair}/{problem_name}'
         
-        timer_obj = Timer(transactions)
+    #     timer_obj = Timer(transactions)
         
-        curr_times = []
-        new_mevs = []
-        for _ in range(5):
-            with mp.Pool() as e:
-                batch_output = list(e.map(timer_obj.evaluate, range(n_repeat)))
-            new_mevs += [batch_output[i][0] for i in range(len(batch_output))]
-            curr_times += [batch_output[i][1] for i in range(len(batch_output))]
-        assert new_mevs[0] == orig_mevs[k]
-        times_summary[k] = np.mean(curr_times).tolist()
-        print(k, times_summary[k])
+    #     curr_times = []
+    #     new_mevs = []
+    #     for _ in range(5):
+    #         with mp.Pool() as e:
+    #             batch_output = list(e.map(timer_obj.evaluate, range(n_repeat)))
+    #         new_mevs += [batch_output[i][0] for i in range(len(batch_output))]
+    #         curr_times += [batch_output[i][1] for i in range(len(batch_output))]
+    #     assert new_mevs[0] == orig_mevs[k]
+    #     times_summary[k] = np.mean(curr_times).tolist()
+    #     print(k, times_summary[k])
 
-    with open(os.path.join(path_to_results, 'times_summary.yaml'), 'w') as f:
-        yaml.dump(times_summary, f)
+    # with open(os.path.join(path_to_results, 'times_summary.yaml'), 'w') as f:
+    #     yaml.dump(times_summary, f)
 
 

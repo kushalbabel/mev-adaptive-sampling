@@ -41,28 +41,32 @@ def next_sample(params, domain):
         sample[param] = domain[param][0] # naively try the start of range
     return sample
 
-def substitute(transactions, sample):
+def substitute(transactions, sample, cast_to_int=False):
     datum = []
     for transaction in transactions:
         transaction = transaction.strip()
         for param in sample:
-            transaction = transaction.replace(param, str(sample[param]))
+            if cast_to_int:
+                transaction = transaction.replace(param, str(int(sample[param])))
+            else:
+                transaction = transaction.replace(param, str(sample[param]))
         datum.append(transaction)
     return datum
 
 # transactions: parametric list of transactions (a transaction is csv values)
 class MEV_evaluator(object):
-    def __init__(self, transactions, params, domain_scales):
+    def __init__(self, transactions, params, domain_scales, cast_to_int=False):
         self.transactions = transactions
         self.params = params
         self.domain_scales = domain_scales
+        self.cast_to_int = cast_to_int
         
     def evaluate(self, sample, port_id, best=False, logfile=None):
         # sample is a vector that has the values for parameter names in self.params    
         sample_dict = {}
         for p_name, v in zip(self.params, sample):
             sample_dict[p_name] = v * self.domain_scales[p_name]
-        datum = substitute(self.transactions, sample_dict)
+        datum = substitute(self.transactions, sample_dict, cast_to_int=self.cast_to_int)
         logging.info(datum)
         mev = simulate(datum, port_id, best=best, logfile=logfile)
 
@@ -109,7 +113,7 @@ def get_groundtruth_order(transaction_lines, include_miner=False):
 
 class Reorder_evaluator(object):
     def __init__(self, transactions, domain, domain_scales, n_iter_gauss, num_samples, minimum_num_good_samples, u_random_portion, local_portion, cross_portion, 
-                pair_selection, alpha_max, early_stopping, save_path, n_parallel, use_repr=False, groundtruth_order=None):
+                pair_selection, alpha_max, early_stopping, save_path, n_parallel, use_repr=False, groundtruth_order=None, cast_to_int=False):
         self.transactions = transactions
         self.domain = domain
         self.domain_scales = domain_scales
@@ -130,6 +134,8 @@ class Reorder_evaluator(object):
         self.use_repr = use_repr
         self.groundtruth_order = groundtruth_order
         assert self.groundtruth_order is not None, 'need to provide the original order of transactions if using abstract representation'
+
+        self.cast_to_int = cast_to_int # cast alpha values to integer before calling mev simulation
     
     def translate_sample(self, sample_repr):
         gt_order = copy.deepcopy(self.groundtruth_order)
@@ -177,7 +183,7 @@ class Reorder_evaluator(object):
         curr_rand_alphas = [rand_alphas[k] for k in params]
         # curr_rand_alphas = [np.random.uniform(boundaries[i][0], boundaries[i][1]) for i in range(len(boundaries))]
 
-        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales)
+        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, cast_to_int=self.cast_to_int)
         mev = mev_evaluator.evaluate(curr_rand_alphas, port_id=port_id, best=False, logfile=None)
 
         return mev
@@ -195,7 +201,7 @@ class Reorder_evaluator(object):
         boundaries = np.asarray(boundaries)
         # print('=> current reordering sample:', transactions)
 
-        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales)
+        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, cast_to_int=self.cast_to_int)
 
         # perform adaptive sampling to optimize alpha values
         sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=self.minimum_num_good_samples, 
@@ -248,28 +254,12 @@ def main(args, transaction, grid_search=False):
         eth_pair = None
     print(f'----------{eth_pair}_{problem_name}----------' if eth_pair is not None else f'----------{problem_name}----------')
 
-    # see if this block was previously optimzied in sushiswap
-    # with open('artifacts_smooth_sushiswap/optimized_block_numbers.yaml', 'r') as f:
-    #     optimized_blocks = yaml.safe_load(f)
-    # if problem_name not in optimized_blocks:
-    #     return
-
-    dir_name = 'artifacts_smooth{}'.format('_SA' if args.SA else '')
-    if eth_pair is not None:
-        dir_to_save = os.path.join(dir_name, eth_pair)
-    else:
-        dir_to_save = dir_name
-    args.save_path = os.path.join(dir_to_save, problem_name, args.name)
-    os.makedirs(args.save_path, exist_ok=True)  
-    print('=> Saving artifacts to %s' % args.save_path)
-    shutil.copyfile(transaction, os.path.join(args.save_path, 'transactions'))
-
-    logging.basicConfig(level=args.loglevel, format='%(message)s')
-    logger = logging.getLogger(__name__)
-
     #---------------- Read input files and initialize the sampler
     transactions_f = open(transaction, 'r')
     transactions = transactions_f.readlines()
+
+    # if len(transactions) >= 15:
+    #     return
 
     domain_f = open(args.domain, 'r')
     domain = {}
@@ -294,6 +284,19 @@ def main(args, transaction, grid_search=False):
         domain[tokens[0]] = (lower_lim, upper_lim)
     print('domain:', domain)
     print('domain scales:', domain_scales)
+
+    dir_name = 'artifacts_smooth{}'.format('_SA' if args.SA else '')
+    if eth_pair is not None:
+        dir_to_save = os.path.join(dir_name, eth_pair)
+    else:
+        dir_to_save = dir_name
+    args.save_path = os.path.join(dir_to_save, problem_name, args.name)
+    os.makedirs(args.save_path, exist_ok=True)  
+    print('=> Saving artifacts to %s' % args.save_path)
+    shutil.copyfile(transaction, os.path.join(args.save_path, 'transactions'))
+
+    logging.basicConfig(level=args.loglevel, format='%(message)s')
+    logger = logging.getLogger(__name__)
 
     if True: #try:
         setup(transactions[0])
@@ -387,7 +390,8 @@ def main(args, transaction, grid_search=False):
                 text = problem_name + 'SA'
             else:
                 text = problem_name + '_random' if args.u_random_portion==1.0 else problem_name
-            if os.path.exists(os.path.join(args.save_path, 'transactions_optimized')):
+            if os.path.exists(os.path.join(args.save_path, 'transactions_optimized')) or '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/15001234' in transaction \
+                                                                                    or '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/15424706' in transaction:
                 with open(os.path.join(dir_to_save, log_file), 'a') as f:
                     f.write(f'------------------- {text} \n')
                     f.write(f'{eth_pair}_{problem_name} already optimized \n')
@@ -405,7 +409,7 @@ def main(args, transaction, grid_search=False):
             evaluator = Reorder_evaluator(transactions, domain, domain_scales, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                             args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
                                             args.alpha_max, args.early_stopping, args.save_path, n_parallel=args.n_parallel_gauss,
-                                            use_repr=True, groundtruth_order=gt_order)
+                                            use_repr=True, groundtruth_order=gt_order, cast_to_int=('uniswapv3' in transaction))
             if args.SA:
                 sampler = SA_sampler(evaluator.evaluate, length=len(transactions)-1, groundtruth_order=gt_order)
 
@@ -514,7 +518,7 @@ def main(args, transaction, grid_search=False):
             if evaluator.use_repr:
                 best_order = evaluator.translate_sample(best_order)
                 assert evaluator.check_constraints(best_order)
-            evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales)
+            evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales, cast_to_int=('uniswapv3' in transaction))
             mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0, best=True, logfile=os.path.join(args.save_path, 'transactions_optimized'))
             print(f'expected {best_mev}, got {mev}')
             assert mev == best_mev
@@ -588,7 +592,7 @@ if __name__ == '__main__':
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
         all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
-                        if file_pattern in f]
+                        if file_pattern in f and int(os.path.basename(dp))>=15.e6]
                         # if file_pattern in f and int(os.path.basename(dp))>=14.e6] 
                         # if file_pattern in f and int(os.path.basename(dp))>=13e6 and int(os.path.basename(dp))<14.e6]
         all_files = np.sort(all_files)
