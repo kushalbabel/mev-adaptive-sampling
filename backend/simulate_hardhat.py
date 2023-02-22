@@ -172,10 +172,20 @@ def get_mev_cex(remaining_balances):
         ret += token_balance* prices[token] / prices['eth']
     return ret
 
-def get_mev_dex(token_addr, remaining_balance, w3):
-    uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
-    fee_pool, uniswapv3_out_amount = get_best_fee_pool(token_addr, remaining_balance, w3)
-    return get_mev() + max(uniswapv3_out_amount, uniswapv2_out_amount) / 1e18
+def get_mev_dex(token_addr, remaining_balance, w3, involved_dexes):
+    if 'uniswapv2' in involved_dexes:
+        uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
+    else:
+        uniswapv2_out_amount = 0
+    if 'sushiswap' in involved_dexes:
+        sushiswap_out_amount = getAmountOutv2(token_addr, sushiswap_router_contract, remaining_balance)
+    else:
+        sushiswap_out_amount = 0
+    if 'uniswapv3' in involved_dexes:
+        fee_pool, uniswapv3_out_amount = get_best_fee_pool(token_addr, remaining_balance, w3)
+    else:
+        uniswapv3_out_amount = 0
+    return get_mev() + max(uniswapv3_out_amount, uniswapv2_out_amount, sushiswap_out_amount) / 1e18
 
 def get_transaction(tx_hash):
     data = {}
@@ -358,7 +368,7 @@ def setup(bootstrap_line):
         pass
 
 
-def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
+def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
     global nonces, FORK_URL
     FORK_URL = 'http://localhost:{}'.format(8547+port_id)
     w3 = Web3(Web3.HTTPProvider(FORK_URL))
@@ -377,16 +387,19 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
     
     # Preparation transactions
     for token in approved_tokens:
-        # approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
-        # simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
-        simulate_tx(approve_tx, w3) #1e27
-        approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
-        simulate_tx(approve_tx, w3) #1e27
+        if 'sushiswap' in involved_dexes:
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+        if 'uniswapv2' in involved_dexes:
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+        if 'uniswapv3' in involved_dexes:
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
+            simulate_tx(approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
+            simulate_tx(approve_tx, w3) #1e27
 
     # Execute transactions
     for line in lines[1:]:
@@ -430,7 +443,7 @@ def simulate(lines, port_id, best=False, logfile=None, settlement='max'):
             remaining_balance = remaining_balances[token_addr]
             if remaining_balance <= 0:
                 continue
-            mev = max(mev, BLOCKREWARD + get_mev_dex(token_addr, remaining_balance, w3))  # blockreward for parity with dex
+            mev = max(mev, BLOCKREWARD + get_mev_dex(token_addr, remaining_balance, w3, involved_dexes))  # blockreward for parity with dex
             # uniswapv2_out_amount = getAmountOutv2(token_addr, uniswap_router_contract, remaining_balance)
             # sushiswap_out_amount = getAmountOutv2(token_addr, sushiswap_router_contract, remaining_balance)
             # if sushiswap_out_amount > uniswapv2_out_amount:
@@ -496,5 +509,5 @@ if __name__ == '__main__':
     print("setting up...", lines[0])
     setup(lines[0])
     print("simulating...")
-    mev = simulate(lines, port_id, False, '', args.settlement)
+    mev = simulate(lines, port_id, ['uniswapv2', 'uniswapv3'], False, '', args.settlement)
     print(mev)
