@@ -29,3 +29,61 @@ ls -al /home/kb742/mev-adaptive-sampling/eth_clients/hardhat/logs/
 0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc_14054805   -> gives 44/44 Nan scores
 
 
+# Speed up harthat simulation
+
+## Set up ethereumjs-evm and ethereumjs-vm
+```
+git clone https://github.com/iseriohn/ethereumjs-monorepo
+cd ethereumjs-monorepo
+git checkout v6.0.0
+npm install
+
+cd packages/evm
+yarn link
+npm run build
+
+cd ../vm
+yarn link
+npm run build
+```
+
+## Set up hardhat
+```
+git clone https://github.com/iseriohn/hardhat
+git checkout simtx
+yarn install
+
+rm -rf node_modules/@nomicfoundation/ethereumjs-evm
+ln -s ~/.config/yarn/link/@ethereumjs/evm node_modules/@nomicfoundation/ethereumjs-evm
+
+
+rm -rf node_modules/@nomicfoundation/ethereumjs-vm
+ln -s ~/.config/yarn/link/@ethereumjs/vm node_modules/@nomicfoundation/ethereumjs-vm
+
+cd packages/hardhat-core
+yarn link
+yarn build
+```
+
+
+## Init a new node project
+```
+cd ~/
+mkdir tmp
+cd tmp
+npm init
+cp ~/mev-adaptive-sampling/eth_clients/hardhat/hardhat.config.js ./
+
+npm install
+npx hardhat
+
+yarn link hardhat
+npx hardhat node --port 8600 --verbose
+```
+
+## Run the simulation script
+```
+python simulate_client.py -f manualtests/optimised_2 -p 53
+```
+
+
