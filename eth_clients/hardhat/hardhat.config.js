@@ -16,6 +16,9 @@ module.exports = {
       mempool: {
         order: "fifo"
       }
+    },
+    forking: {
+      url: "http://localhost:8545"
     }
   }
   },
