@@ -35,34 +35,17 @@ ls -al /home/kb742/mev-adaptive-sampling/eth_clients/hardhat/logs/
 ```
 git clone https://github.com/iseriohn/ethereumjs-monorepo
 cd ethereumjs-monorepo
-git checkout v6.0.0
-npm install
-
-cd packages/evm
-yarn link
-npm run build
-
-cd ../vm
-yarn link
-npm run build
+git checkout ugly
+./setup.sh
 ```
 
 ## Set up hardhat
 ```
 git clone https://github.com/iseriohn/hardhat
 git checkout simtx
-yarn install
+./setup.sh
 
-rm -rf node_modules/@nomicfoundation/ethereumjs-evm
-ln -s ~/.config/yarn/link/@ethereumjs/evm node_modules/@nomicfoundation/ethereumjs-evm
-
-
-rm -rf node_modules/@nomicfoundation/ethereumjs-vm
-ln -s ~/.config/yarn/link/@ethereumjs/vm node_modules/@nomicfoundation/ethereumjs-vm
-
-cd packages/hardhat-core
-yarn link
-yarn build
+cd packages/hardhat-core && yarn link && yarn build
 ```
 
 
@@ -74,10 +57,9 @@ cd tmp
 npm init
 cp ~/mev-adaptive-sampling/eth_clients/hardhat/hardhat.config.js ./
 
-npm install
-npx hardhat
 
 yarn link hardhat
+yarn add hardhat
 npx hardhat node --port 8600 --verbose
 ```
 
@@ -85,5 +67,4 @@ npx hardhat node --port 8600 --verbose
 ```
 python simulate_client.py -f manualtests/optimised_2 -p 53
 ```
-
 
