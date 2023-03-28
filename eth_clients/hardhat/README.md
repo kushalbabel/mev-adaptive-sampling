@@ -33,6 +33,7 @@ ls -al /home/kb742/mev-adaptive-sampling/eth_clients/hardhat/logs/
 
 ## Set up ethereumjs-evm and ethereumjs-vm
 ```
+cd ~/
 git clone https://github.com/iseriohn/ethereumjs-monorepo
 cd ethereumjs-monorepo
 git checkout ugly
@@ -41,7 +42,9 @@ git checkout ugly
 
 ## Set up hardhat
 ```
+cd ~/
 git clone https://github.com/iseriohn/hardhat
+cd hardhat
 git checkout simtx
 ./setup.sh
 
@@ -67,4 +70,3 @@ npx hardhat node --port 8600 --verbose
 ```
 python simulate_client.py -f manualtests/optimised_2 -p 53
 ```
-
