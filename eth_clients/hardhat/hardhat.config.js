@@ -19,7 +19,8 @@ module.exports = {
     },
     forking: {
       url: "http://localhost:8545"
-    }
+    },
+    loggingEnabled: false
   }
   },
 };
