@@ -19,6 +19,7 @@ simlogger = logging.getLogger(__name__)
 sim_log_handler = logging.FileHandler('output.log')
 simlogger.addHandler(sim_log_handler)
 simlogger.setLevel(logging.DEBUG)
+simlogger.setLevel(60)
 simlogger.propagate = False
 
 LARGE_NEGATIVE = -1e9
@@ -30,6 +31,8 @@ MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
 KEYS = {MINER_ADDRESS: MINER_KEY}
 MINER_CAPITAL = 2000*1e18
+MY_SIMULATE_TX = True
+MY_SETUP_LINES = 10
 
 nonces = defaultdict(lambda: 0)
 prices = dict()
@@ -107,8 +110,7 @@ def set_balance(address, balance):
 def fork(bno):
     data = {}
     data['jsonrpc'] = '2.0'
-    #data['method'] = 'hardhat_reset'
-    data['method'] = 'hardhat_myfork'
+    data['method'] = 'hardhat_reset'
     data['params'] = [{
         "forking": {
             "jsonRpcUrl": ARCHIVE_NODE_URL,
@@ -125,11 +127,10 @@ def fork(bno):
     total_time += fork_time
     return response
 
-def reset(bno):
+def myFork(bno):
     data = {}
     data['jsonrpc'] = '2.0'
-    #data['method'] = 'hardhat_reset'
-    data['method'] = 'hardhat_myreset'
+    data['method'] = 'hardhat_myFork'
     data['params'] = [{
         "forking": {
             "jsonRpcUrl": ARCHIVE_NODE_URL,
@@ -142,7 +143,37 @@ def reset(bno):
     r = requests.post(FORK_URL, json=data)
     response = json.loads(r.content)
     fork_time = time.time() - current
-    print("reset time: ", fork_time)
+    print("my fork time: ", fork_time)
+    total_time += fork_time
+    return response
+
+def mySnapshot():
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'hardhat_mySnapshot'
+    data['params'] = []
+    data['id'] = 1
+    global total_time
+    current = time.time()
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    fork_time = time.time() - current
+    print("my snapshot time: ", fork_time)
+    total_time += fork_time
+    return response
+
+def myReset():
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'hardhat_myReset'
+    data['params'] = []
+    data['id'] = 1
+    global total_time
+    current = time.time()
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    fork_time = time.time() - current
+    print("my reset time: ", fork_time)
     total_time += fork_time
     return response
 
@@ -242,26 +273,12 @@ def get_transaction(tx_hash):
     total_time += time.time() - current
     return response
 
-def do_nothing():
-    data = {}
-    data['jsonrpc'] = '2.0'
-    data['method'] = 'eth_doNothing'
-    data['params'] = []
-    data['id'] = 1
-    
-    global total_time
-    current = time.time()
-    r = requests.post(FORK_URL, json=data)
-    response = json.loads(r.content)
-    time_cost = time.time() - current
-    print(time_cost)
-    total_time += time_cost
-    return response
-
 def apply_transaction(serialized_tx):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'eth_sendRawTransaction'
+    if MY_SIMULATE_TX:
+        data['method'] = 'eth_mySimulateTx'
     data['params'] = [serialized_tx]
     data['id'] = 1
     global total_time
@@ -345,6 +362,8 @@ def mine_block():
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'evm_mine'
+    if MY_SIMULATE_TX:
+        data['method'] = 'evm_myMine'
     data['params'] = []
     data['id'] = 1
     global total_time
@@ -414,8 +433,10 @@ def simulate_tx(line, w3):
         nonces[sender] += 1
 
 # bootstrap_line : the first line of the problem
-def setup(bootstrap_line, port_id):
-    bootstrap_line = bootstrap_line.strip()
+def setup(lines, port_id, involved_dexes):
+    bootstrap_line = lines[0].strip()
+    approved_tokens = bootstrap_line.split(',')[1:]
+    
     global prices, decimals
     w3 = Web3(Web3.HTTPProvider(ARCHIVE_NODE_URL))
     approved_tokens = bootstrap_line.split(',')[1:]
@@ -443,43 +464,77 @@ def setup(bootstrap_line, port_id):
     
     global FORK_URL
     FORK_URL = 'http://localhost:{}'.format(8547+port_id)
-    fork(bootstrap_block)
+    myFork(bootstrap_block)
+    
+    for address in KEYS:
+        set_balance(address, int(MINER_CAPITAL))
+    set_miner(MINER_ADDRESS)
+
+    if MY_SIMULATE_TX:
+        global nonces
+        nonces = defaultdict(lambda : 0)
+        w3 = Web3(Web3.HTTPProvider(FORK_URL))
+        # Preparation transactions
+        for token in approved_tokens:
+            if 'sushiswap' in involved_dexes:
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+            if 'uniswapv2' in involved_dexes:
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+            if 'uniswapv3' in involved_dexes:
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+                approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
+                simulate_tx(approve_tx, w3) #1e27
+    
+    for line in lines[1:MY_SETUP_LINES]:
+        if line.startswith('#'):
+            continue
+        simulate_tx(line, w3)
+    
+    mySnapshot()
+
+    global snapshot_nonces
+    snapshot_nonces = nonces.copy()
 
 
 def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
-    global nonces
+    # Note that nonces need to sync up with the snapshot!
+    global nonces, snapshot_nonces
+    nonces = snapshot_nonces.copy()
+
     w3 = Web3(Web3.HTTPProvider(FORK_URL))
-    nonces = defaultdict(lambda : 0)
     bootstrap_line = lines[0].strip()
     simlogger.debug("[ %s ]", bootstrap_line)
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
     approved_tokens = bootstrap_line.split(',')[1:]
     
-
     # Prepare state
-    reset(bootstrap_block)
-    for address in KEYS:
-        set_balance(address, int(MINER_CAPITAL))
-    set_miner(MINER_ADDRESS)
+    myReset()
+    
+    if not MY_SIMULATE_TX:
+        w3 = Web3(Web3.HTTPProvider(FORK_URL))
+        # Preparation transactions
+        for token in approved_tokens:
+            if 'sushiswap' in involved_dexes:
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+            if 'uniswapv2' in involved_dexes:
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+            if 'uniswapv3' in involved_dexes:
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+                approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
+                simulate_tx(approve_tx, w3) #1e27
+                approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
+                simulate_tx(approve_tx, w3) #1e27
    
-    # Preparation transactions
-    for token in approved_tokens:
-        if 'sushiswap' in involved_dexes:
-            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, sushiswap_router_contract.address)
-            simulate_tx(approve_tx, w3) #1e27
-        if 'uniswapv2' in involved_dexes:
-            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
-            simulate_tx(approve_tx, w3) #1e27
-        if 'uniswapv3' in involved_dexes:
-            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
-            simulate_tx(approve_tx, w3) #1e27
-            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
-            simulate_tx(approve_tx, w3) #1e27
-            approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
-            simulate_tx(approve_tx, w3) #1e27
-
     # Execute transactions
-    for line in lines[1:]:
+    for line in lines[MY_SETUP_LINES:]:
         if line.startswith('#'):
             continue
         simulate_tx(line, w3)
@@ -513,6 +568,7 @@ def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlemen
             mev = max(mev, BLOCKREWARD + get_mev_cex(remaining_balances))  # blockreward for parity with dex
         except KeyError:
             simlogger.debug("Not listed on binance")
+
 
     if settlement == 'dex' or settlement == 'max':
         # settle on dex, calculation changes STATE!!
@@ -584,7 +640,7 @@ if __name__ == '__main__':
     port_id = int(args.port)
     lines = data_f.readlines()
     print("setting up...", lines[0])
-    setup(lines[0], port_id)
+    setup(lines, port_id, ['uniswapv2', 'uniswapv3'])
     print("simulating...")
 
 
