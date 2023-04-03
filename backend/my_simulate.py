@@ -6,7 +6,7 @@ import sys
 import logging
 from copy import deepcopy
 from contracts import utils
-from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi
+from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi, temp_abi
 from contracts.tokens import token_contracts, erc20_abi, weth_abi
 from web3 import Web3
 from collections import defaultdict
@@ -14,12 +14,15 @@ import logging
 import time
 from datetime import datetime
 from utils import get_price
+import rlp
+import eth_abi
+from eth_utils import keccak, to_checksum_address, to_bytes
 
 simlogger = logging.getLogger(__name__)
 sim_log_handler = logging.FileHandler('output.log')
 simlogger.addHandler(sim_log_handler)
 simlogger.setLevel(logging.DEBUG)
-simlogger.setLevel(60)
+#simlogger.setLevel(60)
 simlogger.propagate = False
 
 LARGE_NEGATIVE = -1e9
@@ -31,10 +34,11 @@ MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
 KEYS = {MINER_ADDRESS: MINER_KEY}
 MINER_CAPITAL = 2000*1e18
-MY_SIMULATE_TX = True
-MY_SETUP_LINES = 10
+MY_SIMULATE_TX = False
+MY_SETUP_LINES = 1
 
 nonces = defaultdict(lambda: 0)
+deployed_contract_addr = "0x"
 prices = dict()
 decimals = dict()
 
@@ -193,6 +197,17 @@ def get_decimals(token_addr):
     total_time += time.time() - current
     return int(response["result"], 16)
 
+def get_code(contract_addr):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_getCode'
+    data["params"] = [contract_addr, "latest"]
+    # now = datetime.now()
+    data['id'] = 1
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    # return int(response["result"], 16)
+    return response     
 
 def getAmountOutv2(token_addr, router_contract, in_amount):
     data = {}
@@ -273,6 +288,13 @@ def get_transaction(tx_hash):
     total_time += time.time() - current
     return response
 
+def get_contract_address(sender: str, nonce: int) -> str:
+    sender_bytes = to_bytes(hexstr=sender)
+    raw = rlp.encode([sender_bytes, nonce])
+    h = keccak(raw)
+    address_bytes = h[12:]
+    return to_checksum_address(address_bytes)
+
 def apply_transaction(serialized_tx):
     data = {}
     data['jsonrpc'] = '2.0'
@@ -344,6 +366,31 @@ def parse_and_sign_contract_tx(elements, sender, w3):
     # print(signed_tx.rawTransaction.hex())
     return signed_tx.rawTransaction.hex()
 
+def get_bytecode_tx(bytecode, sender, w3):
+    global nonces
+    dynamic_tx = {
+        'data': bytecode,
+        'gas': 15000000,
+        # 'gasPrice': 76778040978,
+        'maxFeePerGas': 14677804097800,
+        'maxPriorityFeePerGas':1000,
+        'nonce': nonces[sender],
+        'chainId': 1,
+    }
+    tx = dynamic_tx
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=KEYS[sender])
+    # print(signed_tx.rawTransaction.hex())
+    return signed_tx.rawTransaction.hex()
+
+def get_nonce(address):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_getTransactionCount'
+    data['params'] = [address, "latest"]
+    data['id'] = 1
+    r = requests.post(FORK_URL, json=data)
+    response = json.loads(r.content)
+    return response
 
 def set_miner(address):
     data = {}
@@ -431,6 +478,16 @@ def simulate_tx(line, w3):
         out = apply_transaction(serialized_tx)
         # print(out)
         nonces[sender] += 1
+    elif tx_type == '3':
+        # inserted transaction
+        bytecode = elements[2]
+        serialized_tx = get_bytecode_tx(bytecode, sender, w3)
+        out = apply_transaction(serialized_tx)
+        print(out)
+        contract_address = get_contract_address(sender, nonces[sender])
+        nonces[sender] += 1
+        print(contract_address)
+        return contract_address
 
 # bootstrap_line : the first line of the problem
 def setup(lines, port_id, involved_dexes):
@@ -474,6 +531,15 @@ def setup(lines, port_id, involved_dexes):
         global nonces
         nonces = defaultdict(lambda : 0)
         w3 = Web3(Web3.HTTPProvider(FORK_URL))
+	
+        # deploy contract
+        # contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json'))["bytecode"]
+        contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/temp.sol/User.json'))["bytecode"]
+        constructor_params_encoded = b'' + eth_abi.encode_single('int', 1)
+        global deployed_contract_addr
+        deployed_contract_addr = simulate_tx("3,miner,{}".format(contract_bytecode + constructor_params_encoded.hex()), w3)
+        token_contracts[deployed_contract_addr] = w3.eth.contract(abi=temp_abi, address=deployed_contract_addr)
+
         # Preparation transactions
         for token in approved_tokens:
             if 'sushiswap' in involved_dexes:
@@ -503,6 +569,7 @@ def setup(lines, port_id, involved_dexes):
 
 def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
     # Note that nonces need to sync up with the snapshot!
+    global deployed_contract_addr
     global nonces, snapshot_nonces
     nonces = snapshot_nonces.copy()
 
@@ -517,6 +584,14 @@ def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlemen
     
     if not MY_SIMULATE_TX:
         w3 = Web3(Web3.HTTPProvider(FORK_URL))
+    	
+	# deploy contract
+    	# contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json'))["bytecode"]
+        contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/temp.sol/User.json'))["bytecode"]
+        constructor_params_encoded = b'' + eth_abi.encode_single('int', 1)
+        deployed_contract_addr = simulate_tx("3,miner,{}".format(contract_bytecode + constructor_params_encoded.hex()), w3)
+        token_contracts[deployed_contract_addr] = w3.eth.contract(abi=temp_abi, address=deployed_contract_addr)
+
         # Preparation transactions
         for token in approved_tokens:
             if 'sushiswap' in involved_dexes:
@@ -538,7 +613,10 @@ def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlemen
         if line.startswith('#'):
             continue
         simulate_tx(line, w3)
-   
+  
+    simulate_tx("1,miner," + deployed_contract_addr + ",1,set_age,100", w3)
+    simulate_tx("1,miner," + deployed_contract_addr + ",1,set_age,99", w3)
+ 
     # Mine the transactions
     mine_result = mine_block()
     if 'error' in mine_result:
