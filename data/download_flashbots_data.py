@@ -8,11 +8,12 @@ f = open(filename, 'r')
 data = json.load(f)
 f.close()
 
-# print(data)
+
 
 start_block = 14986955
 
-for artifact in glob.glob('/home/gid-javaheripim/mev-adaptive-sampling/artifacts_smooth/*/*/'):
+# for artifact in glob.glob('/home/gid-javaheripim/mev-adaptive-sampling/artifacts_smooth/*/*/'):
+for artifact in glob.glob('/home/kb742/mev-adaptive-sampling/eth_token_tests_uniswapv2/*/*/'):
     block_number = artifact.split('/')[-2]
     if block_number not in data and int(block_number) > start_block:
         print(block_number)
@@ -27,4 +28,5 @@ for artifact in glob.glob('/home/gid-javaheripim/mev-adaptive-sampling/artifacts
             print(r.content)
             break
 
+# print(data)
 json.dump(data, open(filename, 'w'))
