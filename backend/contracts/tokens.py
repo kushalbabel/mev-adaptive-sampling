@@ -9,3 +9,5 @@ erc20_abi = json.loads(path.open('r').read()) #TODO: weird abs path, make pretty
 
 path = Path(__file__).parent / "weth_abi.json"
 weth_abi = json.loads(path.open('r').read()) #TODO: weird abs path, make pretty
+
+token_contracts = {}

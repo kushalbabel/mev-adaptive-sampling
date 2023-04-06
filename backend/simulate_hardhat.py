@@ -6,7 +6,7 @@ import sys
 import logging
 from copy import deepcopy
 from contracts import utils
-from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi, temp_abi
+from contracts.uniswap import uniswap_router_contract, sushiswap_router_contract, uniswapv3_router_contract, uniswapv3_quoter_abi, position_manager_abi
 from contracts.tokens import token_contracts, erc20_abi, weth_abi
 from web3 import Web3
 from collections import defaultdict
@@ -32,6 +32,7 @@ FORK_URL = 'http://localhost:8547'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
+UNISWAPV3_FACTORY = '0x1F98431c8aD98523631AE4a59f267346ea31F984'
 KEYS = {MINER_ADDRESS: MINER_KEY}
 MINER_CAPITAL = 2000*1e18
 
@@ -433,11 +434,12 @@ def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlemen
 
 
     # deploy contract
-    # contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json'))["bytecode"]
-    contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/temp.sol/User.json'))["bytecode"]
-    constructor_params_encoded = b'' + eth_abi.encode_single('int', 1)
+    contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/PositionManager.sol/PositionManager.json'))["bytecode"]
+    # contract_bytecode = json.load(open('/home/kb742/v3-periphery/artifacts/contracts/temp.sol/User.json'))["bytecode"]
+    constructor_params_encoded = b'' + eth_abi.encode_single('address', UNISWAPV3_FACTORY) + eth_abi.encode_single('address', WETH)
     deployed_contract_addr = simulate_tx("3,miner,{}".format(contract_bytecode + constructor_params_encoded.hex()), w3)
-    token_contracts[deployed_contract_addr] = w3.eth.contract(abi=temp_abi, address=deployed_contract_addr)
+    token_contracts[deployed_contract_addr] = w3.eth.contract(abi=position_manager_abi, address=deployed_contract_addr)
+    token_contracts['position_manager'] = w3.eth.contract(abi=position_manager_abi, address=deployed_contract_addr)
     
     # Preparation transactions
     for token in approved_tokens:
@@ -452,6 +454,10 @@ def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlemen
             simulate_tx(approve_tx, w3) #1e27
             approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
             simulate_tx(approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, deployed_contract_addr)
+            simulate_tx(approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, deployed_contract_addr)
+            simulate_tx(approve_tx, w3) #1e27
             approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
             simulate_tx(approve_tx, w3) #1e27
 
@@ -461,8 +467,6 @@ def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlemen
             continue
         simulate_tx(line, w3)
     
-    simulate_tx("1,miner,0x9C647E729408Cacc44fA68f22b46A42Fb3f0f3F9,1,set_age,100", w3)
-    simulate_tx("1,miner,0x9C647E729408Cacc44fA68f22b46A42Fb3f0f3F9,1,set_age,99", w3)
 
     # Mine the transactions
     mine_result = mine_block()
