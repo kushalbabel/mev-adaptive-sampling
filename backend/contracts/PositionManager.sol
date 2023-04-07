@@ -41,8 +41,8 @@ contract PositionManager is IUniswapV3MintCallback, PeripheryPayments {
         IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
         pool.mint(
             address(this),
-            tickLower,
-            tickUpper,
+            tickLower * pool.tickSpacing(),
+            tickUpper * pool.tickSpacing(),
             liquidity,
             abi.encode(MintCallbackData({poolKey: poolKey, payer: msg.sender}))
         );
@@ -52,7 +52,7 @@ contract PositionManager is IUniswapV3MintCallback, PeripheryPayments {
     function burnAndCollect(address token0, address token1, uint24 fee, uint128 liquidity, int24 tickLower, int24 tickUpper) external {
         PoolAddress.PoolKey memory poolKey = PoolAddress.PoolKey({token0: token0, token1: token1, fee:fee});
         IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
-        pool.burn(tickLower, tickUpper, liquidity);
-        pool.collect(msg.sender, tickLower, tickUpper, uint128(-1), uint128(-1));
+        pool.burn(tickLower * pool.tickSpacing(), tickUpper * pool.tickSpacing(), liquidity);
+        pool.collect(msg.sender, tickLower * pool.tickSpacing(), tickUpper * pool.tickSpacing(), uint128(-1), uint128(-1));
     }
 }
