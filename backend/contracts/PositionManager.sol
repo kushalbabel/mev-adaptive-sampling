@@ -34,25 +34,28 @@ contract PositionManager is IUniswapV3MintCallback, PeripheryPayments {
         if (amount1Owed > 0) pay(decoded.poolKey.token1, decoded.payer, msg.sender, amount1Owed);
     }
 
-
     // all new positions are owned by this contract, not the payer/sender of the mint transaction
-    function mint(address token0, address token1, uint24 fee, uint128 liquidity, int24 tickLower, int24 tickUpper) external payable {
+    function mint(address token0, address token1, uint24 fee, uint128 liquidity, int24 tickLower, int24 tickDiff) external payable {
         PoolAddress.PoolKey memory poolKey = PoolAddress.getPoolKey(token0, token1, fee);
         IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
+        int24 tickUpper = tickLower + tickDiff;
+        int24 tickSpacing = pool.tickSpacing();
         pool.mint(
             address(this),
-            tickLower * pool.tickSpacing(),
-            tickUpper * pool.tickSpacing(),
+            tickLower * tickSpacing,
+            tickUpper * tickSpacing,
             liquidity,
             abi.encode(MintCallbackData({poolKey: poolKey, payer: msg.sender}))
         );
     }
 
     // anyone can burn this contract's positions and collect the payment
-    function burnAndCollect(address token0, address token1, uint24 fee, uint128 liquidity, int24 tickLower, int24 tickUpper) external {
-        PoolAddress.PoolKey memory poolKey = PoolAddress.PoolKey({token0: token0, token1: token1, fee:fee});
+    function burnAndCollect(address token0, address token1, uint24 fee, uint128 liquidity, int24 tickLower, int24 tickDiff) external {
+        PoolAddress.PoolKey memory poolKey = PoolAddress.getPoolKey(token0, token1, fee);
         IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
-        pool.burn(tickLower * pool.tickSpacing(), tickUpper * pool.tickSpacing(), liquidity);
-        pool.collect(msg.sender, tickLower * pool.tickSpacing(), tickUpper * pool.tickSpacing(), uint128(-1), uint128(-1));
+        int24 tickUpper = tickLower + tickDiff;
+        int24 tickSpacing = pool.tickSpacing();
+        pool.burn(tickLower * tickSpacing, tickUpper * tickSpacing, liquidity);
+        pool.collect(msg.sender, tickLower * tickSpacing, tickUpper * tickSpacing, uint128(-1), uint128(-1));
     }
 }
