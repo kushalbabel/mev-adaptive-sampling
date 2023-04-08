@@ -37,7 +37,7 @@ contract PositionManager is IUniswapV3MintCallback, PeripheryPayments {
 
     // all new positions are owned by this contract, not the payer/sender of the mint transaction
     function mint(address token0, address token1, uint24 fee, uint128 liquidity, int24 tickLower, int24 tickUpper) external payable {
-        PoolAddress.PoolKey memory poolKey = PoolAddress.PoolKey({token0: token0, token1: token1, fee:fee});
+        PoolAddress.PoolKey memory poolKey = PoolAddress.getPoolKey(token0, token1, fee);
         IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
         pool.mint(
             address(this),
