@@ -13,10 +13,10 @@ lines = data_f.readlines()
 PARALLEL = 4
 PORTS = [i for i in range(PARALLEL)]
 results = [-1 for i in range(PARALLEL)]
-dexes = ['uniswapv2','uniswapv3']
+dexes = ['uniswapv2','uniswapv3-jit']
 
+ctx = setup(lines[0])
 with mp.Pool() as pool:
-    ctx = setup(lines[0])
     print(ctx.decimals)
     ctxes = pool.starmap(prepare_once, zip(repeat(ctx), repeat(lines), PORTS, repeat(dexes)))
     print(ctx.decimals)

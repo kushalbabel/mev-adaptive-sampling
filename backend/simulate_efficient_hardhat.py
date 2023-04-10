@@ -26,6 +26,7 @@ simlogger.setLevel(logging.DEBUG)
 simlogger.propagate = False
 
 BLOCKREWARD = 2
+FIRST_PORT = 8547
 WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
@@ -227,7 +228,7 @@ def get_mev_dex(fork_url, token_addr, remaining_balance, w3, involved_dexes):
         sushiswap_out_amount = getAmountOutv2(fork_url, token_addr, sushiswap_router_contract, remaining_balance)
     else:
         sushiswap_out_amount = 0
-    if 'uniswapv3' in involved_dexes:
+    if 'uniswapv3' or 'uniswapv3-jit' in involved_dexes:
         fee_pool, uniswapv3_out_amount = get_best_fee_pool(token_addr, remaining_balance, w3)
     else:
         uniswapv3_out_amount = 0
@@ -448,7 +449,7 @@ def prepare_once(simCtx, lines, port_id, involved_dexes):
     approved_tokens = bootstrap_line.split(',')[1:]
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
 
-    fork_url = 'http://localhost:{}'.format(8601+port_id)
+    fork_url = 'http://localhost:{}'.format(FIRST_PORT+port_id)
     hard_reset(fork_url, bootstrap_block)
 
     for address in KEYS:
@@ -457,11 +458,12 @@ def prepare_once(simCtx, lines, port_id, involved_dexes):
     
     w3 = Web3(Web3.HTTPProvider(fork_url))
 
-    # deploy contract
-    contract_bytecode = json.load(open(position_manager_path))["bytecode"]
-    constructor_params_encoded = b'' + eth_abi.encode_single('address', UNISWAPV3_FACTORY) + eth_abi.encode_single('address', WETH)
-    deployed_contract_addr = simulate_tx(simCtx, fork_url, "3,miner,{}".format(contract_bytecode + constructor_params_encoded.hex()), w3)
-    simCtx.deployed['position_manager'] = (deployed_contract_addr)
+    if 'uniswapv3-jit' in involved_dexes:
+        # deploy contract
+        contract_bytecode = json.load(open(position_manager_path))["bytecode"]
+        constructor_params_encoded = b'' + eth_abi.encode_single('address', UNISWAPV3_FACTORY) + eth_abi.encode_single('address', WETH)
+        deployed_contract_addr = simulate_tx(simCtx, fork_url, "3,miner,{}".format(contract_bytecode + constructor_params_encoded.hex()), w3)
+        simCtx.deployed['position_manager'] = (deployed_contract_addr)
 
     # Preparation transactions
     for token in approved_tokens:
@@ -471,18 +473,20 @@ def prepare_once(simCtx, lines, port_id, involved_dexes):
         if 'uniswapv2' in involved_dexes:
             approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswap_router_contract.address)
             simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
-        if 'uniswapv3' in involved_dexes:
+        if 'uniswapv3' or 'uniswapv3-jit' in involved_dexes:
             approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, uniswapv3_router_contract.address)
             simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
             approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, uniswapv3_router_contract.address)
             simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
+            approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
+            simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
+        if 'uniswapv3-jit' in involved_dexes:
             # TODO approve only when deploying and using the position manager contract
             approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(token, deployed_contract_addr)
             simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
             approve_tx = '1,miner,{},0,approve,{},1000000000000000000000000000'.format(WETH, deployed_contract_addr)
             simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
-            approve_tx = '1,miner,{},{},deposit'.format(WETH, int(MINER_CAPITAL/2/1e18))
-            simulate_tx(simCtx, fork_url, approve_tx, w3) #1e27
+            
     
     mySnapshot(fork_url)
     return simCtx
@@ -491,7 +495,7 @@ def prepare_once(simCtx, lines, port_id, involved_dexes):
 def simulate(simCtx, lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
     # Note that nonces need to sync up with the snapshot!
 
-    fork_url = 'http://localhost:{}'.format(8601+port_id)
+    fork_url = 'http://localhost:{}'.format(FIRST_PORT+port_id)
     
     w3 = Web3(Web3.HTTPProvider(fork_url))
     bootstrap_line = lines[0].strip()
@@ -568,7 +572,7 @@ def simulate(simCtx, lines, port_id, involved_dexes, best=False, logfile=None, s
         best_sample = []
         best_sample += lines
         for token_addr in remaining_balances:
-            best_sample.append('#balance {}:{},{}'.format(token_addr, remaining_balances[token_addr]/(10**decimals[token_addr]),decimals[token_addr]))
+            best_sample.append('#balance {}:{},{}'.format(token_addr, remaining_balances[token_addr]/(10**simCtx.decimals[token_addr]),simCtx.decimals[token_addr]))
         with open(logfile, 'w') as flog:
             for tx in best_sample:
                 flog.write('{}\n'.format(tx.strip()))
