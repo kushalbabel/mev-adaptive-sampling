@@ -55,10 +55,11 @@ def substitute(transactions, sample, cast_to_int=False):
 
 # transactions: parametric list of transactions (a transaction is csv values)
 class MEV_evaluator(object):
-    def __init__(self, transactions, params, domain_scales, cast_to_int=False):
+    def __init__(self, transactions, params, domain_scales, involved_dexes, cast_to_int=False):
         self.transactions = transactions
         self.params = params
         self.domain_scales = domain_scales
+        self.involved_dexes = involved_dexes
         self.cast_to_int = cast_to_int
         
     def evaluate(self, sample, port_id, best=False, logfile=None):
@@ -68,7 +69,7 @@ class MEV_evaluator(object):
             sample_dict[p_name] = v * self.domain_scales[p_name]
         datum = substitute(self.transactions, sample_dict, cast_to_int=self.cast_to_int)
         logging.info(datum)
-        mev = simulate(datum, port_id, best=best, logfile=logfile)
+        mev = simulate(datum, port_id, involved_dexes=self.involved_dexes, best=best, logfile=logfile)
 
         # if mev is None:
         #     with open(os.path.join('nan_problems',f'sample_{np.random.randint(100)}'), 'w') as flog:
@@ -113,7 +114,7 @@ def get_groundtruth_order(transaction_lines, include_miner=False):
 
 class Reorder_evaluator(object):
     def __init__(self, transactions, domain, domain_scales, n_iter_gauss, num_samples, minimum_num_good_samples, u_random_portion, local_portion, cross_portion, 
-                pair_selection, alpha_max, early_stopping, save_path, n_parallel, use_repr=False, groundtruth_order=None, cast_to_int=False):
+                pair_selection, alpha_max, early_stopping, save_path, n_parallel, involved_dexes, use_repr=False, groundtruth_order=None, cast_to_int=False):
         self.transactions = transactions
         self.domain = domain
         self.domain_scales = domain_scales
@@ -130,6 +131,8 @@ class Reorder_evaluator(object):
         self.early_stopping = early_stopping
         self.save_path = os.path.join(save_path, f'{n_iter_gauss}iter_{num_samples}nsamples_{u_random_portion}random_{local_portion}local_{cross_portion}_cross')
         self.n_parallel = n_parallel
+
+        self.involved_dexes = involved_dexes
 
         self.use_repr = use_repr
         self.groundtruth_order = groundtruth_order
@@ -183,7 +186,7 @@ class Reorder_evaluator(object):
         curr_rand_alphas = [rand_alphas[k] for k in params]
         # curr_rand_alphas = [np.random.uniform(boundaries[i][0], boundaries[i][1]) for i in range(len(boundaries))]
 
-        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, cast_to_int=self.cast_to_int)
+        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, involved_dexes=self.involved_dexes, cast_to_int=self.cast_to_int)
         mev = mev_evaluator.evaluate(curr_rand_alphas, port_id=port_id, best=False, logfile=None)
 
         return mev
@@ -201,7 +204,7 @@ class Reorder_evaluator(object):
         boundaries = np.asarray(boundaries)
         # print('=> current reordering sample:', transactions)
 
-        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, cast_to_int=self.cast_to_int)
+        mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, involved_dexes=self.involved_dexes, cast_to_int=self.cast_to_int)
 
         # perform adaptive sampling to optimize alpha values
         sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=self.minimum_num_good_samples, 
@@ -254,6 +257,7 @@ def main(args, transaction, grid_search=False):
         eth_pair = None
     print(f'----------{eth_pair}_{problem_name}----------' if eth_pair is not None else f'----------{problem_name}----------')
 
+
     #---------------- Read input files and initialize the sampler
     transactions_f = open(transaction, 'r')
     transactions = transactions_f.readlines()
@@ -298,6 +302,8 @@ def main(args, transaction, grid_search=False):
     logging.basicConfig(level=args.loglevel, format='%(message)s')
     logger = logging.getLogger(__name__)
 
+    
+    involved_dexes = args.dexes
     if True: #try:
         setup(transactions[0])
         
@@ -309,7 +315,7 @@ def main(args, transaction, grid_search=False):
                 boundaries.append(list(domain[p_name]))
             boundaries = np.asarray(boundaries)
 
-            evaluator = MEV_evaluator(transactions, params, domain_scales=domain_scales)
+            evaluator = MEV_evaluator(transactions, params, domain_scales=domain_scales, involved_dexes=involved_dexes)
 
             if not grid_search:   # perform adaptive sampling to optimize alpha values
                 log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
@@ -408,8 +414,8 @@ def main(args, transaction, grid_search=False):
 
             evaluator = Reorder_evaluator(transactions, domain, domain_scales, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                             args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
-                                            args.alpha_max, args.early_stopping, args.save_path, n_parallel=args.n_parallel_gauss,
-                                            use_repr=True, groundtruth_order=gt_order, cast_to_int=('uniswapv3' in transaction))
+                                            args.alpha_max, args.early_stopping, args.save_path, n_parallel=args.n_parallel_gauss, involved_dexes=involved_dexes,
+                                            use_repr=True, groundtruth_order=gt_order, cast_to_int=('uniswapv3' in args.dexes))
             if args.SA:
                 sampler = SA_sampler(evaluator.evaluate, length=len(transactions)-1, groundtruth_order=gt_order)
 
@@ -518,7 +524,7 @@ def main(args, transaction, grid_search=False):
             if evaluator.use_repr:
                 best_order = evaluator.translate_sample(best_order)
                 assert evaluator.check_constraints(best_order)
-            evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales, cast_to_int=('uniswapv3' in transaction))
+            evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales, involved_dexes=involved_dexes, cast_to_int=('uniswapv3' in args.dexes))
             mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0, best=True, logfile=os.path.join(args.save_path, 'transactions_optimized'))
             print(f'expected {best_mev}, got {mev}')
             assert mev == best_mev
@@ -549,6 +555,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--domain', help="Input File path containing domains for parameters")
     parser.add_argument('--ignore', help="Input File path containing problem names to ignore", default=None)
     parser.add_argument('--grid', action='store_true', help='do grid search instead of sampling')
+    parser.add_argument('--dexes', nargs='+', help='space separated list of dexes involved in optimization', required=True)
     
     #------------ Arguments for transaction reordering
     parser.add_argument('--reorder', action='store_true', help='optimize reordering of transactions')
@@ -583,6 +590,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()  
     # np.random.seed(args.seed)
+    print(args.dexes)
 
     invalid_problems = []
     if args.ignore is not None:
@@ -591,8 +599,8 @@ if __name__ == '__main__':
 
     file_pattern = '_reduced'
     if os.path.isdir(args.transactions):
-        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames 
-                        if file_pattern in f and int(os.path.basename(dp))>=15.e6]
+        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(args.transactions) for f in filenames] 
+                        # if file_pattern in f and int(os.path.basename(dp))>=15.e6] 
                         # if file_pattern in f and int(os.path.basename(dp))>=14.e6] 
                         # if file_pattern in f and int(os.path.basename(dp))>=13e6 and int(os.path.basename(dp))<14.e6]
         all_files = np.sort(all_files)
