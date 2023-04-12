@@ -8,7 +8,7 @@ import time
 import numpy as np
 import multiprocessing as mp
 
-from simulate_client import simulate, setup
+# from simulate_client import simulate, setup
 
 def copy_files(file_patterns, orig_path='./artifacts_', path_to_move='./artifacts'):
     for problem in os.listdir(orig_path):
@@ -169,7 +169,7 @@ if __name__ == '__main__':
     #             shutil.copytree(os.path.join(curr_path, p_name), os.path.join(dst, eth_pair, p_name), dirs_exist_ok=True)
 
     ##### code snippet for saving info_summary files
-    path_to_results = 'artifacts_smooth'
+    path_to_results = 'artifacts_smooth_uniswapv3'
     pattern = '5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor' #'50iter_44nsamples_0.2random_0.4local_0.4_cross' #'5iter_10nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor' #'10iter_15nsamples_0.2random_0.0parents_0.1-0.8p_swap_neighbor'
     curr_results, eth_pairs = gather_results(path_to_results, pattern=pattern)
     summary_dict = {}
@@ -177,7 +177,7 @@ if __name__ == '__main__':
         eth_pair = eth_pairs[k]
         summary_dict[f'{eth_pair}/{k}'] = v[-1]
     print(summary_dict)
-    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'a') as f:
+    with open(os.path.join(path_to_results, 'info_summary.yaml'), 'w') as f:
         yaml.dump(summary_dict, f)
 
 
