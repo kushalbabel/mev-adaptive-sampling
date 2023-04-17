@@ -36,7 +36,7 @@ ls -al /home/kb742/mev-adaptive-sampling/eth_clients/hardhat/logs/
 cd ~/
 git clone https://github.com/iseriohn/ethereumjs-monorepo
 cd ethereumjs-monorepo
-git checkout ugly
+git checkout efficient-stable
 ./setup.sh
 ```
 
@@ -45,7 +45,7 @@ git checkout ugly
 cd ~/
 git clone https://github.com/iseriohn/hardhat
 cd hardhat
-git checkout simtx
+git checkout stable
 ./setup.sh
 
 cd packages/hardhat-core && yarn link && yarn build
