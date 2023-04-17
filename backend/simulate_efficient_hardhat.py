@@ -436,6 +436,8 @@ def setup(bootstrap_line):
     return simCtx
    
 def prepare(simCtx, lines, port_id, involved_dexes):
+    simCtx = deepcopy(simCtx)
+
     bootstrap_line = lines[0].strip()
     approved_tokens = bootstrap_line.split(',')[1:]
     bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
@@ -494,6 +496,8 @@ def prepare_once(simCtx, lines, port_id, involved_dexes):
 
 
 def simulate(simCtx, lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
+    simCtx = deepcopy(simCtx)
+
     # Note that nonces need to sync up with the snapshot!
 
     fork_url = 'http://localhost:{}'.format(FIRST_PORT+port_id)
