@@ -414,7 +414,9 @@ def simulate_tx(simCtx, fork_url, line, w3):
         simCtx.nonces[sender] += 1
         return contract_address
 
-def setup(bootstrap_line):
+def setup(bootstrap_line, capital=1000):
+    global MINER_CAPITAL
+    MINER_CAPITAL = 2 * capital * 1e18
     approved_tokens = bootstrap_line.strip().split(',')[1:]
 
     simCtx = SimulationContext()
