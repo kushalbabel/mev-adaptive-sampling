@@ -62,7 +62,6 @@ cp ~/mev-adaptive-sampling/eth_clients/hardhat/hardhat.config.js ./
 
 
 yarn link hardhat
-yarn add hardhat
 npx hardhat node --port 8600 --verbose
 ```
 
