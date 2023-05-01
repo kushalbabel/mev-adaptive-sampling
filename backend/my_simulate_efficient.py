@@ -57,7 +57,8 @@ if __name__ == '__main__':
     port_id = int(args.port)
     lines = data_f.readlines()
     print("setting up...", lines[0])
-    ctx_initial = simulate_efficient_hardhat.setup(lines[0])
+    ctx = simulate_efficient_hardhat.setup(lines[0])
+    ctx_initial = simulate_efficient_hardhat.prepare_once(ctx, lines, port_id, ['uniswapv2', 'uniswapv3'])
     
     import cProfile, pstats, io
     from pstats import SortKey
@@ -67,9 +68,8 @@ if __name__ == '__main__':
         print("Round #", i);
         total_time = 0
         current = time.time()
-        ctx = simulate_efficient_hardhat.prepare_once(ctx_initial, lines, port_id, ['uniswapv2', 'uniswapv3'])
         print("simulating...")
-        mev = simulate_efficient_hardhat.simulate(ctx, lines, port_id, ['uniswapv2', 'uniswapv3'], False, '', args.settlement)
+        mev = simulate_efficient_hardhat.simulate(ctx_initial, lines, port_id, ['uniswapv2', 'uniswapv3'], False, '', args.settlement)
         print(mev)
         print("single run time: ", time.time() - current)
     
@@ -78,4 +78,4 @@ if __name__ == '__main__':
     sortby = SortKey.CUMULATIVE
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     ps.print_stats()
-    print(s.getvalue())
+    # print(s.getvalue())

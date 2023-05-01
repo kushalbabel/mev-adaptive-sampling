@@ -35,7 +35,8 @@ UNISWAPV3_FACTORY = '0x1F98431c8aD98523631AE4a59f267346ea31F984'
 KEYS = {MINER_ADDRESS: MINER_KEY}
 MINER_CAPITAL = 2000*1e18
 
-FLAG_STABLE = True
+FLAG_STABLE = False
+FLAG_MYMINE = False
 
 class SimulationContext:
     def __init__(self) -> None:
@@ -102,6 +103,7 @@ def hard_reset(fork_url, bno):
     data['method'] = 'hardhat_myFork'
     if FLAG_STABLE:
         data['method'] = 'hardhat_reset'
+    print(data['method'])
     data['params'] = [{
         "forking": {
             "jsonRpcUrl": ARCHIVE_NODE_URL,
@@ -117,6 +119,7 @@ def mySnapshot(fork_url):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'hardhat_mySnapshot'
+    print(data['method'])
     data['params'] = []
     data['id'] = 1
     r = requests.post(fork_url, json=data)
@@ -127,6 +130,7 @@ def soft_reset(fork_url):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'hardhat_myReset'
+    print(data['method'])
     data['params'] = []
     data['id'] = 1
     r = requests.post(fork_url, json=data)
@@ -244,7 +248,7 @@ def apply_transaction(fork_url, serialized_tx):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'eth_mySimulateTx'
-    if FLAG_STABLE:
+    if FLAG_STABLE or (not FLAG_MYMINE):
         data['method'] = 'eth_sendRawTransaction'
     data['params'] = [serialized_tx]
     data['id'] = 1
@@ -347,7 +351,7 @@ def mine_block(fork_url):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'evm_myMine'
-    if FLAG_STABLE:
+    if FLAG_STABLE or (not FLAG_MYMINE):
         data['method'] = 'evm_mine'
     data['params'] = []
     data['id'] = 1
@@ -434,17 +438,8 @@ def setup(bootstrap_line):
         pass
     
     return simCtx
-   
-def prepare(simCtx, lines, port_id, involved_dexes):
-    simCtx = deepcopy(simCtx)
-
-    bootstrap_line = lines[0].strip()
-    approved_tokens = bootstrap_line.split(',')[1:]
-    bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
-
-    fork_url = 'http://localhost:{}'.format(FIRST_PORT+port_id)
-    hard_reset(fork_url, bootstrap_block)
-
+  
+def prepare_initial_txs(simCtx, fork_url, approved_tokens, involved_dexes):
     for address in KEYS:
         set_balance(fork_url, address, int(MINER_CAPITAL))
     set_miner(fork_url, MINER_ADDRESS)
@@ -482,8 +477,24 @@ def prepare(simCtx, lines, port_id, involved_dexes):
             
     return simCtx
 
-    
 
+
+def prepare(simCtx, lines, port_id, involved_dexes):
+    simCtx = deepcopy(simCtx)
+
+    bootstrap_line = lines[0].strip()
+    approved_tokens = bootstrap_line.split(',')[1:]
+    bootstrap_block = int(bootstrap_line.split(',')[0]) - 1
+
+    fork_url = 'http://localhost:{}'.format(FIRST_PORT+port_id)
+    hard_reset(fork_url, bootstrap_block)
+    
+    if FLAG_STABLE or FLAG_MYMINE:
+        simCtx = prepare_initial_txs(simCtx, fork_url, approved_tokens, involved_dexes)
+
+    return simCtx
+
+    
 # bootstrap_line : the first line of the problem
 def prepare_once(simCtx, lines, port_id, involved_dexes):
     if FLAG_STABLE:
@@ -513,7 +524,8 @@ def simulate(simCtx, lines, port_id, involved_dexes, best=False, logfile=None, s
         simCtx = prepare(simCtx, lines, port_id, involved_dexes)
     else:
         soft_reset(fork_url)
-        # fork(bootstrap_block)
+        if not FLAG_MYMINE:
+            simCtx = prepare_initial_txs(simCtx, fork_url, approved_tokens, involved_dexes)
 
 
     # Execute transactions
