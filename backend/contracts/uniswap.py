@@ -19,6 +19,8 @@ uniswapv3_quoter_abi = json.loads(path.open('r').read()) #TODO: weird abs path, 
 position_manager_path = Path(__file__).parent / "PositionManager.json"
 position_manager_abi = json.load(position_manager_path.open('r'))["abi"]
 
+temp_abi = json.load((Path(__file__).parent / "PositionManager.json").open('r'))["abi"]
+
 def get_reserves(exchange_addr):
     data = {}
     data['jsonrpc'] = '2.0'

@@ -103,7 +103,6 @@ def hard_reset(fork_url, bno):
     data['method'] = 'hardhat_myFork'
     if FLAG_STABLE:
         data['method'] = 'hardhat_reset'
-    print(data['method'])
     data['params'] = [{
         "forking": {
             "jsonRpcUrl": ARCHIVE_NODE_URL,
@@ -119,7 +118,6 @@ def mySnapshot(fork_url):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'hardhat_mySnapshot'
-    print(data['method'])
     data['params'] = []
     data['id'] = 1
     r = requests.post(fork_url, json=data)
@@ -130,7 +128,6 @@ def soft_reset(fork_url):
     data = {}
     data['jsonrpc'] = '2.0'
     data['method'] = 'hardhat_myReset'
-    print(data['method'])
     data['params'] = []
     data['id'] = 1
     r = requests.post(fork_url, json=data)
