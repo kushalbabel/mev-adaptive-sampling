@@ -60,7 +60,8 @@ cd tmp
 npm init
 cp ~/mev-adaptive-sampling/eth_clients/hardhat/hardhat.config.js ./
 
-
+yarn add hardhat
+rm -rf node_modules/ yarn.lock
 yarn link hardhat
 npx hardhat node --port 8600 --verbose
 ```
