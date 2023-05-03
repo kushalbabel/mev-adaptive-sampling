@@ -6,7 +6,7 @@ from util import uniswap_to_sushiswap, sushiswap_to_uniswap, sushiswap_to_uniswa
 
 
 # optimizing only selected problems
-with open('artifacts_smooth_combo_v2v3/info_summary.yaml', 'r') as f:
+with open('artifacts_smooth_jit_1e4captial/info_summary.yaml', 'r') as f:
     old_results = yaml.safe_load(f)
 keys_list = list(old_results.keys())
 values_list = [old_results[k] for k in keys_list]
@@ -32,7 +32,8 @@ sorted_values = np.asarray(values_list)[sorted_idx][::-1]
 sorted_keys = np.asarray(keys_list)[sorted_idx][::-1]
 for k in sorted_keys:
     eth_pair, block_num = k.split('/')[0], k.split('/')[1]
-    new_k = uniswapv2_to_uniswapv3(eth_pair)
+    new_k = eth_pair
+    # new_k = uniswapv2_to_uniswapv3(eth_pair)
     # new_k = sushiswap_to_uniswap(eth_pair)
     
     TRANSACTION = os.path.join('/home/kb742/mev-adaptive-sampling/eth_token_tests_uniswapv3', new_k, block_num, 'amm_reduced')
@@ -40,7 +41,8 @@ for k in sorted_keys:
     DEXES = 'uniswapv3'
     
     if os.path.isfile(TRANSACTION):
-        command = f'python optimize.py -t {TRANSACTION} -d {DOMAIN} --dexes {DEXES} --reorder --n_iter 5 --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 40 --n_parallel_gauss 40'
+        command = f'python optimize.py -t {TRANSACTION} -d {DOMAIN} --dexes {DEXES} --reorder --n_iter 5 \
+                        --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 40 --n_parallel_gauss 40 --capital 10000'
         os.system(command)
 
 

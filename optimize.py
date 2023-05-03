@@ -14,6 +14,7 @@ from itertools import repeat
 import numpy as np
 import multiprocessing as mp
 import matplotlib.pyplot as plt
+import git
 
 import sys
 sys.path.append('backend/')
@@ -25,8 +26,7 @@ from sampling_utils import Gaussian_sampler, RandomOrder_sampler, SA_sampler
 
 
 
-VALID_RANGE = {'0x397ff1542f962076d0bfe58ea045ffa2d347aca0': 1e6,
-               '0x795065dcc9f64b5614c407a6efdc400da6221fb0': 1e6}
+VALID_RANGE = {}
 
 def get_params(transactions):
     params = set()
@@ -34,7 +34,7 @@ def get_params(transactions):
         vals = transaction.split(',')
         for val in vals:
             if 'alpha' in val:
-                params.add(val)
+                params.add(val.strip())
     return list(params)
 
 def next_sample(params, domain):
@@ -47,7 +47,8 @@ def substitute(transactions, sample, cast_to_int=False):
     datum = []
     for transaction in transactions:
         transaction = transaction.strip()
-        for param in sample:
+        required_params = get_params([transaction])
+        for param in required_params:
             if cast_to_int:
                 transaction = transaction.replace(param, str(int(sample[param])))
             else:
@@ -72,12 +73,14 @@ class MEV_evaluator(object):
             sample_dict[p_name] = v * self.domain_scales[p_name]
         datum = substitute(self.transactions, sample_dict, cast_to_int=self.cast_to_int)
         logging.info(datum)
+
         mev = simulate(self.ctx_list[port_id], datum, port_id, involved_dexes=self.involved_dexes, best=best, logfile=logfile)
 
-        # if mev is None:
-        #     with open(os.path.join('nan_problems',f'sample_{np.random.randint(100)}'), 'w') as flog:
-        #         for tx in datum:
-        #             flog.write('{}\n'.format(tx.strip()))
+        if mev is None:
+            os.makedirs('nan_problems', exist_ok=True)
+            with open(os.path.join('nan_problems',f'sample_{np.random.randint(100)}'), 'w') as flog:
+                for tx in datum:
+                    flog.write('{}\n'.format(tx.strip()))
 
         return mev
 
@@ -91,9 +94,10 @@ def reorder(transactions, order):
     return reordered_transactions
 
 
-def get_groundtruth_order(transaction_lines, include_miner=False):
+def get_groundtruth_order(transaction_lines, include_miner=True):
     user_transactions = {}
     miner_idx = 0
+    seen_mint_fees = {}  #for keeping track of mint and burnAndCollect txs
     for idx, line in enumerate(transaction_lines):
         if line.startswith('#'):
             #TODO remove for performance in prod
@@ -107,10 +111,27 @@ def get_groundtruth_order(transaction_lines, include_miner=False):
             else:
                 user_transactions[user_id] = [idx]
         elif include_miner:
-            user_id = 'M' + str(miner_idx)
-            assert not user_id in user_transactions
-            user_transactions[user_id] = [idx]
-            miner_idx += 1
+            if elements[2] != 'position_manager':
+                user_id = 'M' + str(miner_idx)
+                assert not user_id in user_transactions
+                user_transactions[user_id] = [idx]
+                miner_idx += 1
+            else:
+                # handle mint and burn and collect pairs
+                if elements[7] not in seen_mint_fees:
+                    user_id = 'M' + str(miner_idx)
+                    assert not user_id in user_transactions
+                    user_transactions[user_id] = [idx]
+                    seen_mint_fees[elements[7]] = user_id
+                    miner_idx += 1
+                else:
+                    user_id = seen_mint_fees[elements[7]]
+                    if elements[4] == 'mint':
+                        user_transactions[user_id] = [idx] + user_transactions[user_id]
+                    elif elements[4] == 'burnAndCollect':
+                        user_transactions[user_id] = user_transactions[user_id] + [idx]
+                    else:
+                        raise NotImplementedError
 
     return user_transactions
 
@@ -201,6 +222,7 @@ class Reorder_evaluator(object):
             assert self.check_constraints(sample)
         
         transactions = reorder(self.transactions, sample)
+        # print('\n'.join(map(str, transactions)))
         params = get_params(transactions)
         boundaries = []
         for p_name in params:
@@ -280,15 +302,12 @@ def main(args, transaction, grid_search=False):
         # TODO: add other currencies here
         lower_lim, upper_lim = float(tokens[1]), float(tokens[2])
         token_pair = args.domain.split('/')[-2]
-        if token_pair not in VALID_RANGE.keys():
-            VALID_RANGE[token_pair] = 1e6
-            print(VALID_RANGE[token_pair])
+        VALID_RANGE[token_pair] = min(1e6, upper_lim)
         if upper_lim > VALID_RANGE[token_pair]:
             domain_scales[tokens[0]] = upper_lim / VALID_RANGE[token_pair]
             upper_lim = VALID_RANGE[token_pair]
         else:
             domain_scales[tokens[0]] = 1.0
-        # domain_scales[tokens[0]] = 1.0
         domain[tokens[0]] = (lower_lim, upper_lim)
     print('domain:', domain)
     print('domain scales:', domain_scales)
@@ -302,20 +321,30 @@ def main(args, transaction, grid_search=False):
     os.makedirs(args.save_path, exist_ok=True)  
     print('=> Saving artifacts to %s' % args.save_path)
     shutil.copyfile(transaction, os.path.join(args.save_path, 'transactions'))
+    
+    # dump git hash
+    repo = git.Repo(search_parent_directories=True)
+    sha = repo.head.object.hexsha
+    with open (os.path.join(dir_name, 'git_hash'), 'w') as f:
+        f.write(sha)
 
     logging.basicConfig(level=args.loglevel, format='%(message)s')
     logger = logging.getLogger(__name__)
 
-    
+    cast_to_int = False
     involved_dexes = args.dexes
+    for dex in involved_dexes:
+        if 'uniswapv3' in dex:
+            cast_to_int = True
+            break
     if True: #try:
-        ctx = setup(transactions[0])
+        ctx = setup(transactions[0], capital=args.capital)
         #------------ generate contexts
         if args.n_parallel_gauss > 1:
             with mp.Pool() as pool:
                 ctxes = list(pool.starmap(prepare_once, zip(repeat(ctx), repeat(transactions), range(args.n_parallel_gauss), repeat(involved_dexes))))
         else:
-            ctxes = list(prepare_once(ctx, transactions, 0, involved_dexes))
+            ctxes = [prepare_once(ctx, transactions, 0, involved_dexes)]
 
         if not args.reorder:  
             params = get_params(transactions)
@@ -325,7 +354,7 @@ def main(args, transaction, grid_search=False):
                 boundaries.append(list(domain[p_name]))
             boundaries = np.asarray(boundaries)
 
-            evaluator = MEV_evaluator(transactions, params, domain_scales=domain_scales, involved_dexes=involved_dexes, ctx_list=ctxes, cast_to_int=('uniswapv3' in args.dexes))
+            evaluator = MEV_evaluator(transactions, params, domain_scales=domain_scales, involved_dexes=involved_dexes, ctx_list=ctxes, cast_to_int=cast_to_int)
 
             if not grid_search:   # perform adaptive sampling to optimize alpha values
                 log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
@@ -411,6 +440,7 @@ def main(args, transaction, grid_search=False):
                 with open(os.path.join(dir_to_save, log_file), 'a') as f:
                     f.write(f'------------------- {text} \n')
                     f.write(f'{eth_pair}_{problem_name} already optimized \n')
+                print(f'{eth_pair}_{problem_name} already optimized \n')
                 return
             else:
                 shutil.rmtree(args.save_path)
@@ -425,7 +455,7 @@ def main(args, transaction, grid_search=False):
             evaluator = Reorder_evaluator(transactions, domain, domain_scales, args.n_iter_gauss, args.num_samples_gauss, int(0.5*args.num_samples_gauss), 
                                             args.u_random_portion_gauss, args.local_portion, args.cross_portion, args.pair_selection, 
                                             args.alpha_max, args.early_stopping, args.save_path, n_parallel=args.n_parallel_gauss, involved_dexes=involved_dexes, ctx_list=ctxes,
-                                            use_repr=True, groundtruth_order=gt_order, cast_to_int=('uniswapv3' in args.dexes))
+                                            use_repr=True, groundtruth_order=gt_order, cast_to_int=cast_to_int)
             
 
             if args.SA:
@@ -528,6 +558,7 @@ def main(args, transaction, grid_search=False):
                 with open(os.path.join(dir_to_save, log_file), 'a') as f:
                     f.write(f'------------------- {text} \n')
                     f.write(f'got None MEV, aborting optimization \n')
+                print(f'got None MEV, aborting optimization \n')
                 return
                     
             # check that the variable values are correct
@@ -536,7 +567,7 @@ def main(args, transaction, grid_search=False):
             if evaluator.use_repr:
                 best_order = evaluator.translate_sample(best_order)
                 assert evaluator.check_constraints(best_order)
-            evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales, involved_dexes=involved_dexes, ctx_list=ctxes, cast_to_int=('uniswapv3' in args.dexes))
+            evaluator_ = MEV_evaluator(reorder(transactions, best_order), vars, domain_scales, involved_dexes=involved_dexes, ctx_list=ctxes, cast_to_int=cast_to_int)
             mev = evaluator_.evaluate([best_variables[k] for k in vars], port_id=0, best=True, logfile=os.path.join(args.save_path, 'transactions_optimized'))
             print(f'expected {best_mev}, got {mev}')
             assert mev == best_mev
@@ -568,6 +599,7 @@ if __name__ == '__main__':
     parser.add_argument('--ignore', help="Input File path containing problem names to ignore", default=None)
     parser.add_argument('--grid', action='store_true', help='do grid search instead of sampling')
     parser.add_argument('--dexes', nargs='+', help='space separated list of dexes involved in optimization', required=True)
+    parser.add_argument('--capital', default=1000, type=int, help='miner captial', required=True)
     
     #------------ Arguments for transaction reordering
     parser.add_argument('--reorder', action='store_true', help='optimize reordering of transactions')
