@@ -22,7 +22,7 @@ from eth_utils import keccak, to_checksum_address, to_bytes
 simlogger = logging.getLogger(__name__)
 sim_log_handler = logging.FileHandler('output.log')
 simlogger.addHandler(sim_log_handler)
-simlogger.setLevel(logging.DEBUG)
+simlogger.setLevel(logging.INFO)
 simlogger.propagate = False
 
 BLOCKREWARD = 2
@@ -35,7 +35,7 @@ UNISWAPV3_FACTORY = '0x1F98431c8aD98523631AE4a59f267346ea31F984'
 KEYS = {MINER_ADDRESS: MINER_KEY}
 MINER_CAPITAL = 2000*1e18
 
-FLAG_STABLE = False
+FLAG_STABLE = True
 FLAG_MYMINE = False
 
 class SimulationContext:
@@ -539,7 +539,7 @@ def simulate(simCtx, lines, port_id, involved_dexes, best=False, logfile=None, s
     # print("Code", get_code(deployed_contract_addr))
     
     if 'error' in mine_result:
-        simlogger.debug(mine_result['error'])
+        simlogger.warn(mine_result['error'])
         return None
     
 
