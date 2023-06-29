@@ -13,7 +13,5 @@ artifacts
 # not needed for sim
 contracts
 test
-package.json
-package-lock.json
 scripts
 README.md

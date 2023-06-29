@@ -26,7 +26,7 @@ simlogger.setLevel(logging.DEBUG)
 simlogger.propagate = False
 
 BLOCKREWARD = 2
-FIRST_PORT = 8547
+FIRST_PORT = 8601
 WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
@@ -636,7 +636,7 @@ if __name__ == '__main__':
     lines = data_f.readlines()
     print("setting up...", lines[0])
     ctx = setup(lines[0])
-    ctx = prepare_once(ctx, lines, port_id, ['uniswapv2', 'uniswapv3'])
+    ctx = prepare_once(ctx, lines, port_id, ['sushiswap',])
     print("simulating...")
-    mev = simulate(ctx, lines, port_id, ['uniswapv2', 'uniswapv3'], False, '', args.settlement)
+    mev = simulate(ctx, lines, port_id, ['sushiswap'], False, '', args.settlement)
     print(mev)

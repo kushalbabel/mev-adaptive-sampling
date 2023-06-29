@@ -28,7 +28,7 @@ simlogger.propagate = False
 LARGE_NEGATIVE = -1e9
 BLOCKREWARD = 2
 WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
-FORK_URL = 'http://localhost:8547'
+FORK_URL = 'http://localhost:8601'
 ARCHIVE_NODE_URL = 'http://localhost:8545'
 MINER_ADDRESS = '0x05E3bD644724652DD57246bae865d4A644151603'
 MINER_KEY = '9a06d0fcf25eda537c6faa451d6b0129c386821d86062b57908d107ba022c4f3'
@@ -417,7 +417,7 @@ def setup(bootstrap_line):
 
 def simulate(lines, port_id, involved_dexes, best=False, logfile=None, settlement='max'):
     global nonces, FORK_URL
-    FORK_URL = 'http://localhost:{}'.format(8547+port_id)
+    FORK_URL = 'http://localhost:{}'.format(8601+port_id)
     w3 = Web3(Web3.HTTPProvider(FORK_URL))
     nonces = defaultdict(lambda : 0)
     bootstrap_line = lines[0].strip()
