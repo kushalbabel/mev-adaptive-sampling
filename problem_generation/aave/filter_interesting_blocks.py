@@ -61,9 +61,9 @@ for log in logsdict:
     collateral_amount = int(str(data[64:128]), 16)
 
     if collateral_asset == eth:
-        if collateral_amount > 1e19:
-            interesting_blocks[block_number] += collateral_amount
-            block_aave_events[block_number].append('{},{},{},{}\n'.format(block_number, debt_asset,user_address, collateral_amount/1e18))
+        interesting_blocks[block_number] += collateral_amount
+        block_aave_events[block_number].append('{},{},{},{}\n'.format(block_number, debt_asset,user_address, collateral_amount/1e18))
+        
 
 s = sorted(interesting_blocks.items(), key=lambda a: -a[1])
 for item in s:
