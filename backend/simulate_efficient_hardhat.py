@@ -566,7 +566,8 @@ def simulate(simCtx, lines, port_id, involved_dexes, best=False, logfile=None, s
                 simlogger.debug("[COUNTER] %d", debug_counter)
         remaining_balances[token_addr] = balance
 
-    mev = 0
+    global MINER_CAPITAL
+    mev = 0 - MINER_CAPITAL
 
     if settlement == 'cex' or settlement == 'max':
         # view only calculation
