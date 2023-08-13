@@ -36,7 +36,8 @@ ls -al /home/kb742/mev-adaptive-sampling/eth_clients/hardhat/logs/
 cd ~/
 git clone https://github.com/iseriohn/ethereumjs-monorepo
 cd ethereumjs-monorepo
-git checkout efficient-stable
+# git checkout efficient-stable
+git checkout optimize
 ./setup.sh
 ```
 
@@ -45,7 +46,8 @@ git checkout efficient-stable
 cd ~/
 git clone https://github.com/iseriohn/hardhat
 cd hardhat
-git checkout stable
+# git checkout stable
+git checkout optimize
 ./setup.sh
 
 cd packages/hardhat-core && yarn link && yarn build
@@ -55,19 +57,15 @@ cd packages/hardhat-core && yarn link && yarn build
 ## Init a new node project
 ```
 cd ~/
-mkdir tmp
-cd tmp
-npm init
+mkdir tmp && cd tmp && npm init
 cp ~/mev-adaptive-sampling/eth_clients/hardhat/hardhat.config.js ./
 
-yarn add hardhat
-rm -rf node_modules/ yarn.lock
-yarn link hardhat
-yarn add hardhat
+yarn add hardhat && rm -rf node_modules/ yarn.lock && yarn link hardhat && yarn add hardhat
 npx hardhat node --port 8600 --verbose
 ```
 
 ## Run the simulation script
 ```
-python simulate_client.py -f manualtests/optimised_2 -p 53
+# python simulate_client.py -f manualtests/optimised_2 -p 53
+python simulate_client.py -f manualtests/optimised_2 -p 53 -o optimize
 ```

@@ -639,8 +639,19 @@ if __name__ == '__main__':
         default='max'
     )
 
+    parser.add_argument(
+        '-o', '--optimize',
+        help="optimize/stable",
+        required=False,
+        default='stable'
+    )
+
     args = parser.parse_args()
     
+    if args.optimize == 'optimize':
+        FLAG_STABLE = False
+        FLAG_MYMINE = True
+
     data_f = open(args.file, 'r')
     port_id = int(args.port)
     lines = data_f.readlines()
