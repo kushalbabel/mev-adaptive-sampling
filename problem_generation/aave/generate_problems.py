@@ -92,7 +92,7 @@ for log in logsdict:
         eth, token_addr, user_addr, template_variable)
     problem_transactions[block_number].append(aave_template)
     problem_tokens[block_number].add(token_addr)
-    problem_domain[block_number].append('{},{},{}'.format(template_variable,0,int(10**(9+get_decimals(token_addr)))))
+    problem_domain[block_number].append('{},{},{},{}'.format(template_variable,0,int(5*10**6),int(10**get_decimals(token_addr))))
     count += 1
     if count % 100 == 20:
         print(count)
@@ -101,22 +101,20 @@ for block_number in problem_tokens:
     for token_addr in problem_tokens[block_number]:
         template_variable = 'alpha' + str(len(problem_domain[block_number]) + 1)
         sushi_template = sushiswap.swap_template(template_variable, eth, token_addr)
-        problem_transactions[block_number].append(sushi_template)
-        problem_domain[block_number].append('{},{},{}'.format(template_variable,0,int(10**(4+18))))
+        problem_domain[block_number].append('{},{},{},{}'.format(template_variable,0,2000,1))
 
         template_variables = ['alpha' + str(x) for x in range(len(problem_domain[block_number]) +1, len(problem_domain[block_number]) +4)]
         uni_templates = uniswapv3.swap_templates(template_variables, eth, token_addr)
-        problem_transactions[block_number] += uni_templates
+        problem_transactions[block_number] = [sushi_template] + uni_templates + problem_transactions[block_number]
         for template_variable in template_variables:
-            problem_domain[block_number].append('{},{},{}'.format(template_variable,0,int(10**(4+18))))
+            problem_domain[block_number].append('{},{},{},{}'.format(template_variable,0,2000,int(10**18)))
 
-output_dir = '../../tests_liquidations/'
+output_dir = '../../tests_liquidations/0xdeadc0de'
 
 for block_number in problem_tokens:
     problem_dir = os.path.join(output_dir, str(block_number))
-    subdir = os.path.join(problem_dir, 'eth')
-    os.makedirs(subdir , exist_ok=True)
-    tx_filename = os.path.join(subdir, 'amm_reduced')
+    os.makedirs(problem_dir , exist_ok=True)
+    tx_filename = os.path.join(problem_dir, 'amm_reduced')
     domain_filename = os.path.join(problem_dir, 'domain')
     tx_file = open(tx_filename, 'w')
     tx_file.write('{},{}\n'.format(block_number, ','.join(problem_tokens[block_number])))
