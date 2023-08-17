@@ -11,3 +11,4 @@ for ((i=0;i<CORES;i++)); do
     cd ..
 	# eval $cmd
 done
+mkdir -p logs
