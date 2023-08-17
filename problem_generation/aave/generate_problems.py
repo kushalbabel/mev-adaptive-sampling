@@ -19,6 +19,10 @@ v3_topics = ['0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67
             '0x7a53080ba414158be7ec69b987b5fb7d07dee101fe85488f0853ae16239d0bde']
 dex_topics = v2_topics + v3_topics
 
+chainlink_events = ["0xf6a97944f31ea060dfde0566e4167c1a1082551e64b60ecb14d599a9d023d451",
+                    "0x0109fc6f55cf40689f02fbaad7af7fe7bbac8a3d2186600afc7d3e10cac60271",
+                    "0x0559884fd3a460db3073b7fc896cc77986f16e378210ded43186175bf646fc5f"]
+
 w3 = Web3(Web3.HTTPProvider(ARCHIVE_NODE_URL))
 erc20_abi = json.loads(open('../abi/erc20_abi.json','r').read())
 eth = Web3.toChecksumAddress("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2")
@@ -34,6 +38,16 @@ def get_aave_logs(block_number):
     response = json.loads(r.content)
     return response['result']
 
+def get_ordered_tx(block_number):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_getBlockByNumber'
+    data['params'] = [block_number, False]
+    data['id'] = 1
+    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    response = json.loads(r.content)
+    return response['result']['transactions']
+
 def get_tx_receipt(txhash):
     data = {}
     data['jsonrpc'] = '2.0'
@@ -44,6 +58,33 @@ def get_tx_receipt(txhash):
     response = json.loads(r.content)
     return response['result']
 
+def get_tx_sender(txhash):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_getTransactionByHash'
+    data['params'] = [txhash]
+    data['id'] = 1
+    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    response = json.loads(r.content)
+    return response['result']['from']
+
+def get_chainlink_update_tx(block_number):
+    data = {}
+    data['jsonrpc'] = '2.0'
+    data['method'] = 'eth_getLogs'
+    data['params'] = [{"fromBlock": hex(block_number), "toBlock": hex(block_number), "topics": [chainlink_events]}]
+    data['id'] = 1
+    r = requests.post(ARCHIVE_NODE_URL, json=data)
+    txhashes = set()
+    res = {}
+    logs = json.loads(r.content)['result']
+    for log in logs:
+        txhashes.add(log['transactionHash'])
+    for txhash in txhashes:
+        res[txhash] = '0,{},{}'.format(get_tx_sender(txhash), txhash)
+    return res
+    
+
 def dex_involved(tx_receipt):
     for log in tx_receipt['logs']:
         if log['topics'][0] in dex_topics:
@@ -53,7 +94,7 @@ def dex_involved(tx_receipt):
 def get_aave_transactions(block_number):
     logs = get_aave_logs(block_number)
     candidate_transactions = set()
-    res = []
+    res = {}
     for log in logs:
         txhash = log['transactionHash']
         if txhash in candidate_transactions:
@@ -62,7 +103,7 @@ def get_aave_transactions(block_number):
         if not dex_involved(tx_receipt):
             candidate_transactions.add(txhash)
             sender = tx_receipt['from']
-            res.append('0,{},{}'.format(sender, txhash))
+            res[txhash] = '0,{},{}'.format(sender, txhash)
     return res
 
 def get_decimals(token_addr):
@@ -74,25 +115,43 @@ infile = 'aave_interesting_blocks_from_logs.csv'
 logsdict = csv.DictReader(open(infile), delimiter=',',
                             quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-problem_transactions = {}
+problem_transactions = defaultdict(lambda: [])
 problem_tokens = defaultdict(lambda: set())
-problem_domain = {}
+problem_domain = defaultdict(lambda: [])
+problem_aave_templates = defaultdict(lambda: {})
 
 count = 0
 #block,debtAsset,user_address,collateralAmount
+
 for log in logsdict:
     block_number = int(log['block'])
-    if block_number not in problem_transactions:
-        problem_transactions[block_number] = get_aave_transactions(block_number)
-        problem_domain[block_number] = []
     token_addr = Web3.toChecksumAddress(log['debtAsset'])
     user_addr = Web3.toChecksumAddress(log['userAddress'])
+    associated_hash = log['transactionHash']
     template_variable = 'alpha' + str(len(problem_domain[block_number]) + 1)
     aave_template = '1,miner,Aave,0,liquidationCall,{},{},{},{},false'.format(
         eth, token_addr, user_addr, template_variable)
-    problem_transactions[block_number].append(aave_template)
+    problem_aave_templates[block_number][associated_hash] = aave_template
     problem_tokens[block_number].add(token_addr)
     problem_domain[block_number].append('{},{},{},{}'.format(template_variable,0,int(5*10**6),int(10**get_decimals(token_addr))))
+    count += 1
+    if count % 100 == 20:
+        print(count)
+
+
+count = 0
+for block_number in problem_tokens:
+    aave_tx = get_aave_transactions(block_number)
+    chainlink_tx = get_chainlink_update_tx(block_number)
+    ordered_tx_list = get_ordered_tx(block_number)
+
+    for tx in ordered_tx_list:
+        if tx in problem_aave_templates[block_number]:
+            problem_transactions[block_number].append(problem_aave_templates[block_number][tx])
+        if tx in aave_tx:
+            problem_transactions[block_number].append(aave_tx[tx])
+        elif tx in chainlink_tx:
+            problem_transactions[block_number].append(chainlink_tx[tx])
     count += 1
     if count % 100 == 20:
         print(count)
@@ -109,7 +168,7 @@ for block_number in problem_tokens:
         for template_variable in template_variables:
             problem_domain[block_number].append('{},{},{},{}'.format(template_variable,0,2000,int(10**18)))
 
-output_dir = '../../tests_liquidations/0xdeadc0de'
+output_dir = '../../tests_liquidations_oracle/0xdeadc0de'
 
 for block_number in problem_tokens:
     problem_dir = os.path.join(output_dir, str(block_number))

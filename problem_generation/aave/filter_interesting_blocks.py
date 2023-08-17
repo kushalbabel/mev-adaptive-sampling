@@ -32,7 +32,7 @@ start_block = 12600000 # June 9'21
 end_block = 15537351 # mev-boost launch
 
 
-fout.write('block,debtAsset,userAddress,collateralAmount\n')
+fout.write('block,debtAsset,userAddress,transactionHash,collateralAmount\n')
 
 for log in logsdict:
     topics = topics_from_text(log['topics'])
@@ -53,6 +53,7 @@ for log in logsdict:
     if debt_asset != eth and collateral_asset != eth:
         continue
     
+    tx_hash = log['transaction_hash']
 
     data = log['data']
     data = data[2:] # strip 0x from hex
@@ -62,7 +63,7 @@ for log in logsdict:
 
     if collateral_asset == eth:
         interesting_blocks[block_number] += collateral_amount
-        block_aave_events[block_number].append('{},{},{},{}\n'.format(block_number, debt_asset,user_address, collateral_amount/1e18))
+        block_aave_events[block_number].append('{},{},{},{},{}\n'.format(block_number, debt_asset,user_address, tx_hash, collateral_amount/1e18))
         
 
 s = sorted(interesting_blocks.items(), key=lambda a: -a[1])
