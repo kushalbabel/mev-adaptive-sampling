@@ -5,10 +5,9 @@ for ((i=0;i<CORES;i++)); do
     dir=$PORT
     mkdir -p $dir
     cd $dir
-    rm -rf cache/
-    rm -rf node_modules/
+    npm init -y
     cp ../hardhat.config.js ./
-    cp ../yarn.lock ./
+    yarn add hardhat && rm -rf node_modules/ yarn.lock && yarn link hardhat && yarn add hardhat
     cd ..
 	# eval $cmd
 done
