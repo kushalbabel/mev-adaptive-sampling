@@ -1,12 +1,15 @@
 import os
 import yaml
 import numpy as np
+import pandas as pd
+import time
+from subprocess import Popen, PIPE
 
 from util import uniswap_to_sushiswap, sushiswap_to_uniswap, sushiswap_to_uniswapv3, uniswapv2_to_uniswapv3
 
-
+'''
 # optimizing only selected problems
-with open('artifacts_smooth_jit_1e4captial/info_summary.yaml', 'r') as f:
+with open('artifacts_smooth_jit_1e5capital/info_summary.yaml', 'r') as f:
     old_results = yaml.safe_load(f)
 keys_list = list(old_results.keys())
 values_list = [old_results[k] for k in keys_list]
@@ -42,9 +45,9 @@ for k in sorted_keys:
     
     if os.path.isfile(TRANSACTION):
         command = f'python optimize.py -t {TRANSACTION} -d {DOMAIN} --dexes {DEXES} --reorder --n_iter 5 \
-                        --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 40 --n_parallel_gauss 40 --capital 10000'
+                        --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 40 --n_parallel_gauss 40 --capital 100000'
         os.system(command)
-
+'''
 
 '''
 path_to_problems = '/home/kb742/mev-adaptive-sampling/eth_token_tests_uniswap_composition'
@@ -66,3 +69,61 @@ for eth_pair in os.listdir(path_to_problems):
 
         os.system(command)
 '''
+
+def run_optimization(optimization_command):
+    cwd_dir = os.getcwd()
+    sim_dir = os.path.join(cwd_dir, 'eth_clients', 'optimized_hardhat')
+    # restart simulation nodes
+    os.chdir(sim_dir)
+    print("killing sim nodes")
+    pipe = Popen(["bash", "kill_hardhat.sh"], stdout=PIPE, stderr=PIPE, close_fds=True)
+    (_output, err) = pipe.communicate()
+    if 'not permitted' in err.decode('utf-8'):
+        print("Simulation nodes not reachable! Exiting...")
+        return
+    print("launching sim nodes")
+    pipe = Popen(["bash", "launch_hardhats.sh"], stdout=PIPE, stderr=PIPE, close_fds=True)
+    time.sleep(5) # wait for simulation nodes to start up
+    # ping simulation nodes
+    print("pinging sim nodes")
+    pipe = Popen(["bash", "ping_hardhats.sh"], stdout=PIPE, stderr=PIPE, close_fds=True)
+    (_output, err) = pipe.communicate()
+    if 'refused' in err.decode('utf-8'):
+        print("Simulation nodes not reachable! Exiting...")
+        return
+    os.chdir(cwd_dir)
+    # execute optimization command
+    #print(command)
+    print("running optimization")
+    os.system(optimization_command)
+    
+
+# path_to_problems = '/home/kb742/mev-adaptive-sampling/tests_liquidations_oraclerelated' #tests_liquidations'
+baseline_df = pd.read_csv('/home/kb742/mev-adaptive-sampling/data/flashbots_baseline_for_aave.csv', sep=',', header=None)
+transactions_with_baseline = [path.replace('tests_liquidations', 'tests_liquidations_oraclerelated') for path in baseline_df.iloc[1:, 0]]
+sorted_problems_df = pd.read_csv('/home/kb742/mev-adaptive-sampling/problem_generation/aave/sorted_problems.csv', sep=',', header=None)
+for i, TRANSACTION in enumerate(sorted_problems_df.iloc[1:, 0]):
+    if not TRANSACTION in transactions_with_baseline:
+        continue
+    liquidation = float(sorted_problems_df.iloc[i+1, 1])
+    if liquidation > 300 or liquidation < 100:
+        continue
+
+    DOMAIN = TRANSACTION.replace('amm_reduced', 'domain')
+    DEXES = 'sushiswap aave uniswapv3'
+    
+    # command = f'python optimize.py -t {TRANSACTION} -d {DOMAIN} --dexes {DEXES} --reorder --n_iter 5 \
+    #                 --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 40 --n_parallel_gauss 40 --capital 10000'
+    command = f'python optimize.py -t {TRANSACTION} -d {DOMAIN} --dexes {DEXES} \
+                    --n_iter 5 --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 \
+                    --n_iter_gauss 40 --num_samples_gauss 400 --gauss_random_loguniform --u_random_portion_gauss 0.4 --local_portion 0.3 --cross_portion 0.3 --n_parallel_gauss 40 --capital 10000'
+    run_optimization(command)
+    
+
+# TRANSACTION = '/home/kb742/mev-adaptive-sampling/tests_liquidations_oraclerelated/0xdeadc0de/14046466/amm_reduced'
+# DOMAIN = '/home/kb742/mev-adaptive-sampling/tests_liquidations_oraclerelated/0xdeadc0de/14046466/domain'
+# DEXES = 'sushiswap aave uniswapv3'
+# command = f'python optimize.py -t {TRANSACTION} -d {DOMAIN} --dexes {DEXES} \
+#                     --n_iter 5 --num_samples 10 --parents_portion 0.0 --p_swap_max 0.8 --p_swap_min 0.1 --num_samples_gauss 400 \
+#                     --n_iter_gauss 40 --gauss_random_loguniform --u_random_portion_gauss 0.4 --local_portion 0.3 --cross_portion 0.3 --n_parallel_gauss 40 --capital 10000'
+# run_optimization(command)

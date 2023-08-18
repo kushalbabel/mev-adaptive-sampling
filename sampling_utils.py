@@ -42,9 +42,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import pickle
 from sklearn import neighbors
-
 from tqdm import tqdm
 from sklearn.mixture import GaussianMixture
+from math import log
 
 
 class AverageMeter(object):
@@ -88,7 +88,7 @@ class AverageMeter(object):
 
 
 class AdaNS_sampler(object):
-    def __init__(self, boundaries, minimum_num_good_samples):
+    def __init__(self, boundaries, minimum_num_good_samples, random_loguniform=False):
         # minimum number of good samples (b) used to find the value of \alpha for each iteration
         self.minimum_num_good_samples = minimum_num_good_samples
         assert self.minimum_num_good_samples>0, "minimum number of good samples must be greater than zero"
@@ -106,6 +106,9 @@ class AdaNS_sampler(object):
         # maximum score through all iterations seen so far
         self.max_score = 0
         self.alpha_t = 0
+
+        self.random_sampler = self.sample_loguniform if random_loguniform else self.sample_uniform
+        print('---- random sampler is ', self.random_sampler)
 
     
     def sample_uniform(self, num_samples=1):
@@ -125,6 +128,23 @@ class AdaNS_sampler(object):
 
         return sample_vectors
     
+    def sample_loguniform(self, num_samples=1):
+        '''
+        function to sample unifromly in the log domain from all the search-space
+            - num_samples: number of samples to take
+        '''
+        if num_samples>0:
+            sample_vectors = np.random.uniform([0]*self.dimensions, [log(x,10) for x in self.boundaries[:,1]], size=(num_samples, self.dimensions))
+            sample_vectors = np.unique(sample_vectors, axis=0)
+            while len(sample_vectors) < num_samples:
+                count = num_samples - len(sample_vectors)
+                sample_vectors = np.concatenate((sample_vectors, np.random.uniform([0]*self.dimensions, [log(x,10) for x in self.boundaries[:,1]], size=(count, self.dimensions))))
+                sample_vectors = np.unique(sample_vectors, axis=0)
+        else:
+            sample_vectors = np.zeros((0, self.dimensions))
+            
+        return np.power(10, sample_vectors)
+
 
     def update_good_samples(self, alpha_t=None):
         '''
@@ -285,7 +305,7 @@ class AdaNS_sampler(object):
         for iteration in range(n_iter):
             t0 = time.time()
             if iteration==0:
-                samples = self.sample_uniform(num_samples)
+                samples = self.random_sampler(num_samples)
                 origins = ['U']*len(samples)
                 prev_max_score = self.max_score
             else:
@@ -555,7 +575,8 @@ class Genetic_sampler(AdaNS_sampler):
 
 
 class Gaussian_sampler(AdaNS_sampler):
-    def __init__(self, boundaries, minimum_num_good_samples, u_random_portion=0.2, local_portion=0.4, cross_portion=0.4, pair_selection_method='random'):
+    def __init__(self, boundaries, minimum_num_good_samples, random_loguniform=False,
+                u_random_portion=0.2, local_portion=0.4, cross_portion=0.4, pair_selection_method='random'):
         '''
             - u_random_portion: ratio of samples taken uniformly from the entire space
             - local_portion: ratio of samples taken from gaussian distributions using the "local" method
@@ -565,8 +586,7 @@ class Gaussian_sampler(AdaNS_sampler):
             
             - pair_selection_method: how to select pairs for cross samples. Options: ['random','top_scores','top_and_nearest','top_and_furthest','top_and_random']
         '''
-
-        super(Gaussian_sampler, self).__init__(boundaries, minimum_num_good_samples)
+        super(Gaussian_sampler, self).__init__(boundaries, minimum_num_good_samples, random_loguniform=random_loguniform)
 
         # for each sample, specifies how it was created: 'U':uniformly 'L':gaussian local, 'C':gaussian cross
         self.origins = []
@@ -642,7 +662,7 @@ class Gaussian_sampler(AdaNS_sampler):
             else:
                 local_samples = np.zeros((0, self.dimensions))
         except:
-            local_samples  = self.sample_uniform(num_samples=local_sampling)
+            local_samples  = self.random_sampler(num_samples=local_sampling)
         
         # "Cross" samples created with gaussians    
         cross_sampling = int(num_samples*self.cross_portion+0.001)
@@ -664,7 +684,7 @@ class Gaussian_sampler(AdaNS_sampler):
 
         # "Uniform" samples chosen uniformly random
         random_sampling = int(num_samples*self.u_random_portion+0.001)   
-        random_samples = self.sample_uniform(num_samples=random_sampling)
+        random_samples = self.random_sampler(num_samples=random_sampling)
                
         if verbose:
             print('sampled %d uniformly, %d with local gaussians, %d with cross gaussians'%(len(random_samples), len(local_samples), len(cross_samples)))
@@ -686,7 +706,7 @@ class Gaussian_sampler(AdaNS_sampler):
         while len(sample_vectors) < num_samples:
             count = num_samples - len(sample_vectors)
             # print(f'adding {count} more random samples')
-            sample_vectors = np.concatenate((sample_vectors, self.sample_uniform(num_samples=count)))
+            sample_vectors = np.concatenate((sample_vectors, self.random_sampler(num_samples=count)))
             origins += ['U'] * count
             sample_vectors, indices = np.unique(sample_vectors, axis=0, return_index=True)
             origins = [origins[i] for i in indices]

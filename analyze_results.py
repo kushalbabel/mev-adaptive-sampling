@@ -38,8 +38,8 @@ if __name__ == '__main__':
         #### load flashbots data
         # path_to_flashbots = ['/home/kb742/mev-adaptive-sampling/data/flashbots_baseline.csv']
         # path_to_flashbots = ['flashbots_baseline_for_problems.csv']   # fair baseline
-        path_to_flashbots = ['flashbots_baseline_for_problems.csv', 'flashbots_baseline_for_uniswapv2remaining_problems.csv'] # fair baseline for all blocks
-        # path_to_flashbots = ['flashbots_baseline_for_uniswapv3_problems.csv']
+        # path_to_flashbots = ['flashbots_baseline_for_problems.csv', 'flashbots_baseline_for_uniswapv2remaining_problems.csv'] # fair baseline for all blocks
+        path_to_flashbots = ['flashbots_baseline_for_uniswapv3_problems.csv']
         flashbots_logs_ = {}
         for f in path_to_flashbots:
             flashbots_data = pd.read_csv(f)
@@ -73,7 +73,8 @@ if __name__ == '__main__':
         print(f'found {len(lanturn_results.keys())} Lantern results')
 
         common_keys = np.intersect1d(list(lanturn_results.keys()), list(flashbots_logs.keys())).tolist()
-        common_keys.remove('15050470')
+        if 'uniswapv2' in args.path:
+            common_keys.remove('15050470')
         # common_keys = list(lanturn_results.keys())
         # for k in common_keys:
         #     if not k in flashbots_logs:
@@ -129,7 +130,7 @@ if __name__ == '__main__':
         indices_to_keep = [i for i in range(len(common_keys_sorted)) if lanturn_values_sorted[i] >= flashbots_values_sorted[i] + 1]   
 
         idx_max = np.argmax(lanturn_values_sorted[indices_to_keep] - flashbots_values_sorted[indices_to_keep])
-        print(common_keys_sorted[indices_to_keep][idx_max], lanturn_values_sorted[indices_to_keep][idx_max] - flashbots_values_sorted[indices_to_keep][idx_max])
+        print(f'maximum mev boost occured at {common_keys_sorted[indices_to_keep][idx_max]}: {lanturn_values_sorted[indices_to_keep][idx_max] - flashbots_values_sorted[indices_to_keep][idx_max]}')
 
         plt.clf()
         fig, ax = plt.subplots(figsize=(12, 4))
@@ -143,14 +144,14 @@ if __name__ == '__main__':
             xticklabels.append(common_keys_sorted[idx] if i%2==0 else '')
         # ax.scatter(idx_max, lanturn_values_sorted[indices_to_keep][idx_max], s=100, marker='*', color='tab:blue')
         ax.set_xticklabels(xticklabels, rotation=60)
-        plt.ylabel('MEV', fontsize=16)
+        plt.ylabel('MEV (in ETH)', fontsize=16)
         plt.yscale('log')
         fname = '{}.png'.format(args.path.replace('artifacts_smooth_', ''))
         plt.savefig(os.path.join(path_to_save, fname), bbox_inches='tight')
 
     elif args.section == '5.3.2':
         #### load combo data  
-        path_to_combo = 'artifacts_smooth_combo'
+        path_to_combo = 'artifacts_smooth_combo_sushiv2'
         with open(os.path.join(path_to_combo, 'info_summary.yaml'), 'r') as f:
             curr_results = yaml.safe_load(f)
         combo_results = {}
@@ -192,6 +193,12 @@ if __name__ == '__main__':
         lanturn_values_sorted =  np.asarray([lanturn_results[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
         indices_to_keep = [i for i in range(len(common_keys_sorted)) if combo_values_sorted[i] > lanturn_values_sorted[i]+0.1] #range(len(common_keys))#[i for i in range(len(common_keys_sorted)) if combo_values_sorted[i] < 200]    
 
+        # fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,4))
+        # # ax.set_yscale('log'), ax2.set_yscale('log')
+        # ax.plot(lanturn_values_sorted[indices_to_keep], label='Sushiswap')
+        # ax.plot(combo_values_sorted[indices_to_keep], label='Sushiswap + UniswapV2')
+        # ax.legend()
+
         plt.clf()
         fig, (ax, ax2) = plt.subplots(2, 1, sharex=True, figsize=(7,4))
         # ax.set_yscale('log'), ax2.set_yscale('log')
@@ -200,7 +207,7 @@ if __name__ == '__main__':
         ax2.plot(lanturn_values_sorted[indices_to_keep], label='Sushiswap')
         ax2.plot(combo_values_sorted[indices_to_keep], label='Sushiswap + UniswapV2')
 
-        ax2.set_ylim(0, 40)
+        ax2.set_ylim(0, 120)
         ax.set_ylim(270, 530)
 
         # hide the spines between ax and ax2
@@ -226,7 +233,7 @@ if __name__ == '__main__':
         for i, idx in enumerate(indices_to_keep):
             xticklabels.append(common_keys_sorted[idx] if i%1==0 else '')
         ax2.set_xticklabels(xticklabels, rotation=45)
-        fig.supylabel('MEV', fontsize=16)
+        fig.supylabel('MEV (in ETH)', fontsize=16)
         # plt.yscale('log')
         fig.subplots_adjust(hspace=0.1)
         fname = '{}_combo.png'.format(args.path.replace('artifacts_smooth_', ''))
@@ -430,6 +437,76 @@ if __name__ == '__main__':
         plt.ylabel('MEV', fontsize=16), plt.xlabel('# samples', fontsize=16)
         plt.savefig(os.path.join(path_to_save, 'random_vs_lanturn_{}.png'.format('time' if x_axis=='time' else 'nsamples')), bbox_inches='tight')
 
+    elif args.section == 'jit':
+        capital = '1e4'
+        #### load jit data  
+        path_to_jit = 'artifacts_smooth_jit' + f'_{capital}capital'
+        with open(os.path.join(path_to_jit, 'info_summary.yaml'), 'r') as f:
+            curr_results = yaml.safe_load(f)
+        jit_results = {}
+        for k in curr_results.keys():
+            eth_pair, block_num = k.split('/')[0], k.split('/')[1]
+            
+            if block_num in jit_results:
+                jit_results[block_num] = max(jit_results[block_num], curr_results[k])
+            else:
+                jit_results[block_num] = curr_results[k]  
+        print(f'found {len(jit_results.keys())} combo results')
+
+        #### load uniswapv3 data
+        path_to_uniswapv3 = 'artifacts_smooth_uniswapv3' + (f'_{capital}capital' if capital != '1e3' else '')
+        path_to_results_yaml = os.path.join(path_to_uniswapv3, 'info_summary.yaml')
+        with open(path_to_results_yaml, 'r') as f:
+            curr_results = yaml.safe_load(f)
+        lanturn_results = {}
+        for k in curr_results.keys():
+            eth_pair, block_num = k.split('/')[0], k.split('/')[1]
+            
+            if block_num in lanturn_results:
+                lanturn_results[block_num] = max(lanturn_results[block_num], curr_results[k])
+            else:
+                lanturn_results[block_num] = curr_results[k]  
+        print(f'found {len(lanturn_results.keys())} Lantern results')
+
+        common_keys = np.intersect1d(list(lanturn_results.keys()), list(jit_results.keys()))
+
+        #### plot mev versus block number
+        common_keys = [int(k) for k in common_keys]
+        if sorted_blocknum:
+            common_keys_sorted = np.sort(common_keys)
+        else:
+            lanturn_values = [lanturn_results[str(common_keys[i])] for i in range(len(common_keys))]
+            indices_sorted = np.argsort(lanturn_values)
+            common_keys_sorted = np.asarray(common_keys)[indices_sorted]
+        
+        jit_values_sorted = np.asarray([jit_results[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
+        lanturn_values_sorted =  np.asarray([lanturn_results[str(common_keys_sorted[i])] for i in range(len(common_keys_sorted))])
+        indices_to_keep = range(len(common_keys)) #[i for i in range(len(common_keys_sorted)) if jit_values_sorted[i] < 100] #[i for i in range(len(common_keys_sorted)) if combo_values_sorted[i] > lanturn_values_sorted[i]+0.1]    
+
+        diff = [max(0, j-l) for j,l in zip(jit_values_sorted[indices_to_keep],lanturn_values_sorted[indices_to_keep])]
+
+
+        plt.clf()
+        fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,4))
+        # ax.set_yscale('log'), ax2.set_yscale('log')
+        # ax.plot(lanturn_values_sorted[indices_to_keep], label='UniswapV3')
+        # ax.plot(jit_values_sorted[indices_to_keep], label='Jit')
+        ax.plot(diff)
+        plt.axhline(y = 0., color='gray', linestyle='--')
+
+        # ax.set_ylim(0, 40)
+        # ax.legend(fontsize=16)
+        ax.set_xlabel('Block number', fontsize=16)
+        ax.set_xticks(range(len(indices_to_keep)))
+        xticklabels = []
+        for i, idx in enumerate(indices_to_keep):
+            xticklabels.append(common_keys_sorted[idx] if i%1==0 else '')
+        ax.set_xticklabels(xticklabels, rotation=45)
+        fig.supylabel('MEV Difference (in ETH)', fontsize=16)
+        # plt.yscale('log')
+        fname = f'jit_{capital}capital.png'
+        plt.savefig(os.path.join(path_to_save, fname), bbox_inches='tight')
+    
     else:
         #### load combo data  
         path_to_combo = 'artifacts_smooth_combo_v2v3'
@@ -460,7 +537,7 @@ if __name__ == '__main__':
         print(f'found {len(lanturn_results.keys())} uniswapv2 results')
 
         #### load uniswapv3 data  
-        path_to_results_yaml = os.path.join('artifacts_smooth', 'info_summary.yaml')
+        path_to_results_yaml = os.path.join('artifacts_smooth_uniswapv3', 'info_summary.yaml')
         with open(path_to_results_yaml, 'r') as f:
             curr_results = yaml.safe_load(f)
         lanturn_results_v3 = {}
@@ -508,18 +585,18 @@ if __name__ == '__main__':
         idx_max = np.argmax(combo_values_sorted - lanturn_values_sorted)
         print(common_keys_sorted[idx_max], combo_values_sorted[idx_max] - lanturn_values_sorted[idx_max])
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(9, 4))
         plt.plot(combo_values_sorted[indices_to_keep], label='UniswapV2 + UniswapV3', color='tab:green')
         plt.plot(lanturn_values_sorted[indices_to_keep], label='UniswapV2', color='tab:blue')
-        plt.plot(lanturn_values_sorted_v3[indices_to_keep], label='UniswapV3', color='tab:orange')
+        # plt.plot(lanturn_values_sorted_v3[indices_to_keep], label='UniswapV3', color='tab:orange')
         plt.legend(fontsize=16)
         plt.xlabel('Block number', fontsize=16)
         ax.set_xticks(range(len(indices_to_keep)))
         xticklabels = []
         for i, idx in enumerate(indices_to_keep):
-            xticklabels.append(common_keys_sorted[idx] if i%2==0 else '')
+            xticklabels.append(common_keys_sorted[idx] if i%1==0 else '')
         ax.set_xticklabels(xticklabels, rotation=60)
-        plt.ylabel('MEV', fontsize=16)
+        plt.ylabel('MEV (in ETH)', fontsize=16)
         plt.yscale('log')
 
         # plt.clf()

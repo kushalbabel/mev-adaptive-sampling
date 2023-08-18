@@ -29,12 +29,13 @@ from sampling_utils import Gaussian_sampler, RandomOrder_sampler, SA_sampler
 VALID_RANGE = {}
 
 def get_params(transactions):
-    params = set()
+    params = list()
     for transaction in transactions:
         vals = transaction.split(',')
         for val in vals:
             if 'alpha' in val:
-                params.add(val.strip())
+                if val.strip() not in params:
+                    params.append(val.strip())
     return list(params)
 
 def next_sample(params, domain):
@@ -71,6 +72,7 @@ class MEV_evaluator(object):
         sample_dict = {}
         for p_name, v in zip(self.params, sample):
             sample_dict[p_name] = v * self.domain_scales[p_name]
+            # print(sample_dict)
         datum = substitute(self.transactions, sample_dict, cast_to_int=self.cast_to_int)
         logging.info(datum)
 
@@ -233,7 +235,7 @@ class Reorder_evaluator(object):
         mev_evaluator = MEV_evaluator(transactions, params, domain_scales=self.domain_scales, involved_dexes=self.involved_dexes, ctx_list=self.ctx_list, cast_to_int=self.cast_to_int)
 
         # perform adaptive sampling to optimize alpha values
-        sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=self.minimum_num_good_samples, 
+        sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=self.minimum_num_good_samples, random_loguniform=args.gauss_random_loguniform,
                                     u_random_portion=self.u_random_portion, local_portion=self.local_portion, cross_portion=self.cross_portion, pair_selection_method=self.pair_selection)
 
         #---------------- Run Sampling
@@ -302,17 +304,23 @@ def main(args, transaction, grid_search=False):
         # TODO: add other currencies here
         lower_lim, upper_lim = float(tokens[1]), float(tokens[2])
         token_pair = args.domain.split('/')[-2]
-        VALID_RANGE[token_pair] = min(1e6, upper_lim)
-        if upper_lim > VALID_RANGE[token_pair]:
-            domain_scales[tokens[0]] = upper_lim / VALID_RANGE[token_pair]
-            upper_lim = VALID_RANGE[token_pair]
+
+        if len(tokens)==3:
+            VALID_RANGE[token_pair] = min(1e6, upper_lim)
+            if upper_lim > VALID_RANGE[token_pair]:
+                domain_scales[tokens[0]] = upper_lim / VALID_RANGE[token_pair]
+                upper_lim = VALID_RANGE[token_pair]
+            else:
+                domain_scales[tokens[0]] = 1.0
         else:
-            domain_scales[tokens[0]] = 1.0
+            assert len(tokens)==4
+            domain_scales[tokens[0]] = float(tokens[3])
+
         domain[tokens[0]] = (lower_lim, upper_lim)
     print('domain:', domain)
     print('domain scales:', domain_scales)
 
-    dir_name = 'artifacts_smooth{}'.format('_SA' if args.SA else '')
+    dir_name = 'artifacts_smooth{}_aave_oraclerelated'.format('_SA' if args.SA else '')
     if eth_pair is not None:
         dir_to_save = os.path.join(dir_name, eth_pair)
     else:
@@ -337,7 +345,7 @@ def main(args, transaction, grid_search=False):
         if 'uniswapv3' in dex:
             cast_to_int = True
             break
-    if True: #try:
+    if True: #try:      
         ctx = setup(transactions[0], capital=args.capital)
         #------------ generate contexts
         if args.n_parallel_gauss > 1:
@@ -347,6 +355,10 @@ def main(args, transaction, grid_search=False):
             ctxes = [prepare_once(ctx, transactions, 0, involved_dexes)]
 
         if not args.reorder:  
+            if os.path.exists(os.path.join(args.save_path, 'history_info_0.pkl')):
+                print('-------------------- already optimized')
+                return
+
             params = get_params(transactions)
             logging.info(params)
             boundaries = []
@@ -359,7 +371,7 @@ def main(args, transaction, grid_search=False):
             if not grid_search:   # perform adaptive sampling to optimize alpha values
                 log_file = f'final_results_{eth_pair}.txt' if eth_pair is not None else 'final_results.txt'
 
-                sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=int(0.5*args.num_samples_gauss), 
+                sampler = Gaussian_sampler(boundaries, minimum_num_good_samples=int(0.5*args.num_samples_gauss), random_loguniform=args.gauss_random_loguniform,
                                             u_random_portion=args.u_random_portion_gauss, local_portion=args.local_portion, 
                                             cross_portion=args.cross_portion, pair_selection_method=args.pair_selection)
 
@@ -373,6 +385,11 @@ def main(args, transaction, grid_search=False):
                         f.write('------------------- {} \n'.format(problem_name + '_random' if args.u_random_portion==1.0 else problem_name))
                         f.write(f'got None MEV, aborting optimization \n')
                     return
+
+                evaluator_ = MEV_evaluator(transactions, params, domain_scales=domain_scales, involved_dexes=involved_dexes, ctx_list=ctxes, cast_to_int=cast_to_int)
+                mev = evaluator_.evaluate(best_sample, port_id=0, best=True, logfile=os.path.join(args.save_path, 'transactions_optimized'))
+                print(f'expected {best_mev}, got {mev}')
+                assert mev == best_mev
                 
                 print('=> optimal hyperparameters:', {p_name: v for p_name, v in zip(params, best_sample)})
                 print('maximum MEV:', best_mev)
@@ -626,6 +643,7 @@ if __name__ == '__main__':
     parser.add_argument('--early_stopping', default=10, type=int, help='number of iterations without improvement to activate early stopping (default: 10)')
 
     #------ Gaussian Sampler parameters
+    parser.add_argument('--gauss_random_loguniform', action='store_true', help='whether to use loguniform or uniform sampler for random samples.')
     parser.add_argument('--u_random_portion_gauss', default=0.2, type=float, help='portion of samples to take unifromly random from the entire space (default:0.2)')
     parser.add_argument('--local_portion', default=0.4, type=float, help='portion of samples to take from gaussians using the Local method (default:0.4)')
     parser.add_argument('--cross_portion', default=0.4, type=float, help='portion of samples to take from gaussians using the Cross method (default:0.4)')
